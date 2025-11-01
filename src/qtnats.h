@@ -188,7 +188,7 @@ namespace QtNats {
         Subscription& operator=(Subscription&&) = delete;
 
     signals:
-        void received(const Message& message);
+        void received(Message message);
 
     private:
         Subscription(QObject* parent) : QObject(parent) {}
@@ -261,7 +261,7 @@ namespace QtNats {
         jsCtx* getJsContext() const { return m_jsCtx; }
         
     signals:
-        void errorOccurred(natsStatus error, jsErrCode jsErr, const QString& text, const Message& msg);
+        void errorOccurred(natsStatus error, jsErrCode jsErr, const QString& text, Message msg);
 
     private:
         JetStream(QObject* parent) : QObject(parent) {}

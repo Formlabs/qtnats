@@ -68,7 +68,7 @@ void CoreTestCase::subscribe()
         auto sub = c.subscribe("test_subject");
         
         QList<Message> msgList;
-        connect(sub, &Subscription::received, [&msgList](const Message& message) {
+        connect(sub, &Subscription::received, [&msgList](Message message) {
             msgList += message;
         });
 

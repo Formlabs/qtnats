@@ -15,9 +15,9 @@ The library is under active development. Feedback is welcome.
 # Building
 Qt5 and Qt6 are supported. You will need [cmake](https://cmake.org) - at least version 3.16.
 
-You can build the library as follows (assuming your build tree is somewhere under the root folder):
+You can build the library as follows (assuming your build tree is next to the source folder):
 ```
-cmake -DBUILD_QMLNATS=ON -DCMAKE_BUILD_TYPE=Release -A x64 ..
+cmake -DBUILD_QMLNATS=ON -DCMAKE_BUILD_TYPE=Release -A x64 ../qtnats
 # then build the library using your compiler as usual
 ```
 The library is built as a shared DLL/SO. `cnats` is built as a static library.

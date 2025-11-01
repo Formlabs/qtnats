@@ -43,7 +43,7 @@ private slots:
 
 void JetStreamTestCase::initTestCase()
 {
-    QDir::setCurrent("../test"); //default pwd is "build"
+    QDir::setCurrent("../qtnats/test"); //default pwd is "build"
 
     connect(&natsServer, &QProcess::stateChanged, [](QProcess::ProcessState newState) {
         cout << "nats-server: " << qPrintable(enumToString(newState)) << endl;
@@ -72,7 +72,7 @@ void JetStreamTestCase::publish()
         
         auto js = c.jetStream();
 
-        connect(js, &JetStream::errorOccurred, [](natsStatus error, jsErrCode jsErr, const QString& text, const Message& msg) {
+        connect(js, &JetStream::errorOccurred, [](natsStatus error, jsErrCode jsErr, const QString& text, Message msg) {
             cout << "JS error: " << qPrintable(text) << endl;
         });
 
@@ -140,7 +140,7 @@ void JetStreamTestCase::pushSubscribe()
         // can we miss a message if "connect" is not fast enough?
         // apparently, consumer's deliver_subject does not matter here
         QList<Message> msgList;
-        connect(sub, &Subscription::received, [&msgList](const Message& message) {
+        connect(sub, &Subscription::received, [&msgList](Message message) {
             msgList += message;
         });
 
