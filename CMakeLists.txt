@@ -6,8 +6,6 @@ include(CMakePrintHelpers)
 include(FetchContent)
 include(GenerateExportHeader)
 
-option(BUILD_QMLNATS "Build the QML NATS plugin (Qt6-only)" OFF)
-
 set(default_build_type "Release")
 
 set(CMAKE_CXX_STANDARD 14)
@@ -59,11 +57,3 @@ target_link_libraries(test_core PRIVATE qtnats Qt::Test)
 add_executable(test_jetstream test/test_jetstream.cpp)
 add_test(NAME test_jetstream COMMAND test_jetstream)
 target_link_libraries(test_jetstream PRIVATE qtnats Qt::Test)
-
-if(BUILD_QMLNATS)
-    if(${QT_VERSION_MAJOR} EQUAL 6)
-        add_subdirectory(qml)
-    else()
-        message(FATAL_ERROR "NATS QML is supported only with Qt6")
-    endif()
-endif()
