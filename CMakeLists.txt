@@ -33,6 +33,7 @@ set(NATS_BUILD_STREAMING OFF)
 set(NATS_BUILD_LIB_SHARED OFF)
 
 set(BUILD_TESTING OFF)  # do not build cnats tests
+set(BUILD_QT_NATS_INTEGRATION_TESTING OFF)
 
 FetchContent_MakeAvailable(cnats)
 
@@ -49,11 +50,13 @@ set_target_properties(qtnats PROPERTIES VERSION 0.1.0 SOVERSION 0.1)
 
 GENERATE_EXPORT_HEADER(qtnats)
 
-# ------------- unit tests ----------------------
-add_executable(test_core test/test_core.cpp)
-add_test(NAME test_core COMMAND test_core)
-target_link_libraries(test_core PRIVATE qtnats Qt::Test)
+# integration tests (these spin up nats server and nats client)
+if (BUILD_QT_NATS_INTEGRATION_TESTING)
+    add_executable(test_core test/test_core.cpp)
+    add_test(NAME test_core COMMAND test_core)
+    target_link_libraries(test_core PRIVATE qtnats Qt::Test)
 
-add_executable(test_jetstream test/test_jetstream.cpp)
-add_test(NAME test_jetstream COMMAND test_jetstream)
-target_link_libraries(test_jetstream PRIVATE qtnats Qt::Test)
+    add_executable(test_jetstream test/test_jetstream.cpp)
+    add_test(NAME test_jetstream COMMAND test_jetstream)
+    target_link_libraries(test_jetstream PRIVATE qtnats Qt::Test)
+endif ()
