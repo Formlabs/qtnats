@@ -28,11 +28,11 @@ QString enumToString(T value)
 class JetStreamTestCase : public QObject
 {
     Q_OBJECT
-    
+
     QProcess natsServer;
     QProcess natsCli;
 
-private slots:
+private Q_SLOTS:
     void initTestCase();
     void cleanupTestCase();
 
@@ -52,7 +52,7 @@ void JetStreamTestCase::initTestCase()
     natsServer.start("nats-server", QStringList() << "-js");
     natsServer.waitForStarted();
     QTest::qWait(1000);
-    
+
     natsCli.start("nats", QStringList() << "stream" << "add" << "--config=stream_config.json");
     natsCli.waitForFinished();
 
@@ -69,7 +69,7 @@ void JetStreamTestCase::publish()
     try {
         Client c;
         c.connectToServer(QUrl("nats://localhost:4222"));
-        
+
         auto js = c.jetStream();
 
         connect(js, &JetStream::errorOccurred, [](natsStatus error, jsErrCode jsErr, const QString& text, Message msg) {

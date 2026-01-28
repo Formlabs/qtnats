@@ -92,7 +92,7 @@ Message::Message(natsMsg* msg) noexcept:
     natsStatus s = natsMsgHeader_Keys(msg, &keys, &keyCount);
     if (s != NATS_OK || keyCount == 0)
         return;
-    
+
     // handle message headers
     for (int i = 0; i < keyCount; i++) {
         const char** values = nullptr;
@@ -101,7 +101,7 @@ Message::Message(natsMsg* msg) noexcept:
         if (s != NATS_OK)
             continue;
         QByteArray key (keys[i]);
-        
+
         for (int j = 0; j < valueCount; j++) {
             QByteArray value (values[j]);
             headers.insert(key, value);
@@ -115,7 +115,7 @@ Message::Message(natsMsg* msg) noexcept:
 NatsMsgPtr QtNats::toNatsMsg(const Message& msg, const char* reply)
 {
     natsMsg* cnatsMsg;
-    
+
     const char* realReply = nullptr; //in asyncRequest I need to provide my own reply
     if (reply) {
         realReply = reply;
@@ -130,21 +130,22 @@ NatsMsgPtr QtNats::toNatsMsg(const Message& msg, const char* reply)
         msg.data.constData(),
         msg.data.size()
     ));
-    
+
     NatsMsgPtr msgPtr(cnatsMsg, &natsMsg_Destroy);
 
     auto i = msg.headers.constBegin();
     while (i != msg.headers.constEnd()) {
         checkError(natsMsgHeader_Add(cnatsMsg, i.key().constData(), i.value().constData()));
+        ++i;
     }
     return msgPtr;
 }
 
 void QtNats::subscriptionCallback(natsConnection* /*nc*/, natsSubscription* /*sub*/, natsMsg* msg, void* closure) {
     Subscription* sub = reinterpret_cast<Subscription*>(closure);
-    
+
     Message m(msg);
-    emit sub->received(m);
+    Q_EMIT sub->received(m);
 }
 
 static void asyncRequestCallback(natsConnection* /*nc*/, natsSubscription* natsSub, natsMsg* msg, void* closure) {
@@ -170,24 +171,24 @@ static void asyncRequestCallback(natsConnection* /*nc*/, natsSubscription* natsS
 
 static void errorHandler(natsConnection* /*nc*/, natsSubscription* /*subscription*/, natsStatus err, void* closure) {
     Client* c = reinterpret_cast<Client*>(closure);
-    emit c->errorOccurred(err, getNatsErrorText(err));
+    Q_EMIT c->errorOccurred(err, getNatsErrorText(err));
 }
 
 void Client::closedConnectionHandler(natsConnection* /*nc*/, void *closure) {
     Client* c = reinterpret_cast<Client*>(closure);
     //can ask for last error here?
-    emit c->statusChanged(ConnectionStatus::Closed);
+    Q_EMIT c->statusChanged(ConnectionStatus::Closed);
     c->semaphore.release();
 }
 
 static void reconnectedHandler(natsConnection* /*nc*/, void *closure) {
     Client* c = reinterpret_cast<Client*>(closure);
-    emit c->statusChanged(ConnectionStatus::Connected);
+    Q_EMIT c->statusChanged(ConnectionStatus::Connected);
 }
 
 static void disconnectedHandler(natsConnection* /*nc*/, void *closure) {
     Client* c = reinterpret_cast<Client*>(closure);
-    emit c->statusChanged(ConnectionStatus::Disconnected);
+    Q_EMIT c->statusChanged(ConnectionStatus::Disconnected);
 }
 
 Client::Client(QObject* parent):
@@ -220,9 +221,9 @@ void Client::connectToServer(const Options& opts)
     natsOptions_SetDisconnectedCB(nats_opts, &disconnectedHandler, this);
     natsOptions_SetReconnectedCB(nats_opts, &reconnectedHandler, this);
 
-    emit statusChanged(ConnectionStatus::Connecting);
+    Q_EMIT statusChanged(ConnectionStatus::Connecting);
     checkError(natsConnection_Connect(&m_conn, nats_opts));
-    emit statusChanged(ConnectionStatus::Connected);
+    Q_EMIT statusChanged(ConnectionStatus::Connected);
     //TODO handle reopening
 }
 
@@ -238,7 +239,7 @@ void Client::close() noexcept
     if (!m_conn) {
         return;
     }
-    //sync this thread with closedConnectionHandler otherwise I get a crash when trying to emit c->statusChanged(ConnectionStatus::Closed);
+    //sync this thread with closedConnectionHandler otherwise I get a crash when trying to Q_EMIT c->statusChanged(ConnectionStatus::Closed);
     semaphore.acquire();
     natsConnection_Close(m_conn);
     semaphore.acquire(); // here we'll wait until the callback is done
@@ -268,7 +269,7 @@ QFuture<Message> Client::asyncRequest(const Message& msg, qint64 timeout)
     QByteArray inbox = Client::newInbox();
 
     natsSubscription* subscription = nullptr;
-    
+
     checkError(natsConnection_SubscribeTimeout(&subscription, m_conn, inbox.constData(), timeout, &asyncRequestCallback, future_iface.get()));
     checkError(natsSubscription_AutoUnsubscribe(subscription, 1));
     // can't do msg.reply = inbox; publish(msg); because "msg" is constant
