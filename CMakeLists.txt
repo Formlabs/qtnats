@@ -11,7 +11,6 @@ set(default_build_type "Release")
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_AUTOMOC ON)
-set(CMAKE_INCLUDE_CURRENT_DIR ON)  # to find qtnats_export.h
 
 find_package(QT NAMES Qt6 Qt5 COMPONENTS Core REQUIRED)
 # according to https://gitlab.kitware.com/cmake/cmake/-/issues/20843 I need 2 find_package's to detect Qt5/Qt6
@@ -42,7 +41,17 @@ include_directories(${cnats_SOURCE_DIR}/src src)
 # ------------- qtnats library ----------------------
 file(GLOB SOURCES "src/*.cpp")
 file(GLOB HEADERS "src/*.h")
-add_library(qtnats SHARED ${SOURCES} ${HEADERS})
+add_library(qtnats
+    SHARED
+        src/qtnats/jetstream.cpp
+        src/qtnats/qtnats.cpp
+        src/qtnats/qtnats.h
+        src/qtnats/qtnats_p.h
+        ${CMAKE_CURRENT_BINARY_DIR}/qtnats_export.h
+)
+
+target_include_directories(qtnats PUBLIC src ${CMAKE_CURRENT_BINARY_DIR})
+
 target_link_libraries(qtnats nats_static Qt::Core)
 
 # this has no effect on Windows due to https://gitlab.kitware.com/cmake/cmake/-/issues/19618
@@ -60,3 +69,7 @@ if (BUILD_QT_NATS_INTEGRATION_TESTING)
     add_test(NAME test_jetstream COMMAND test_jetstream)
     target_link_libraries(test_jetstream PRIVATE qtnats Qt::Test)
 endif ()
+
+if(COMMAND dc_register_thirdparty_library)
+    dc_register_thirdparty_library(qtnats)
+endif()

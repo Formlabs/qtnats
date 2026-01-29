@@ -19,7 +19,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 
 #include <nats.h>
 
-#include "qtnats_export.h"
+#include <qtnats_export.h>
 
 namespace QtNats {
 
