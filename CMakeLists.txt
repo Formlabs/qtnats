@@ -36,11 +36,7 @@ set(BUILD_QT_NATS_INTEGRATION_TESTING OFF)
 
 FetchContent_MakeAvailable(cnats)
 
-include_directories(${cnats_SOURCE_DIR}/src src)
-
 # ------------- qtnats library ----------------------
-file(GLOB SOURCES "src/*.cpp")
-file(GLOB HEADERS "src/*.h")
 add_library(qtnats
     STATIC
         src/qtnats/jetstream.cpp
@@ -50,7 +46,13 @@ add_library(qtnats
         ${CMAKE_CURRENT_BINARY_DIR}/qtnats_export.h
 )
 
-target_include_directories(qtnats PUBLIC src ${CMAKE_CURRENT_BINARY_DIR})
+target_include_directories(qtnats
+    PUBLIC
+        src
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${cnats_SOURCE_DIR}/src
+)
+
 
 target_link_libraries(qtnats nats_static Qt::Core)
 
