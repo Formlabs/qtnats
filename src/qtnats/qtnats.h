@@ -19,7 +19,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 
 #include <nats.h>
 
-#include "qtnats_export.h"
+#include <qtnats_export.h>
 
 namespace QtNats {
 
@@ -116,14 +116,14 @@ namespace QtNats {
         // NB! 1. headers are case-sensitive
         // 2. cnats does NOT preserve the order of headers
         MessageHeaders headers;
-        
+
     private:
         std::shared_ptr<natsMsg> m_natsMsg;
     };
 
     class Subscription;
     class JetStream;
-    
+
     struct JsOptions
     {
         // QString prefix = "$JS.API"; don't think it's a good idea to change this?
@@ -135,17 +135,17 @@ namespace QtNats {
     {
         Q_OBJECT
         Q_DISABLE_COPY(Client)
-        
+
     public:
         explicit Client(QObject* parent = nullptr);
         ~Client() noexcept override;
         Client(Client&&) = delete;
         Client& operator=(Client&&) = delete;
-        
+
         void connectToServer(const Options& opts);
         void connectToServer(const QUrl& address);
         void close() noexcept;
-        
+
         void publish(const Message& msg);
 
         Message request(const Message& msg, qint64 timeout = 2000);
@@ -155,7 +155,7 @@ namespace QtNats {
         Subscription* subscribe(const QByteArray& subject, const QByteArray& queueGroup);
 
         bool ping(qint64 timeout = 10000) noexcept; //ms
-        
+
         QUrl currentServer() const;
         ConnectionStatus status() const;
         QString errorString() const;
@@ -166,7 +166,7 @@ namespace QtNats {
 
         natsConnection* getNatsConnection() const { return m_conn; }
 
-    signals:
+    Q_SIGNALS:
         void errorOccurred(natsStatus error, const QString& text);
         void statusChanged(ConnectionStatus status);
 
@@ -176,7 +176,7 @@ namespace QtNats {
 
         static void closedConnectionHandler(natsConnection* nc, void* closure);
     };
-    
+
     class QTNATS_EXPORT Subscription : public QObject
     {
         Q_OBJECT
@@ -187,7 +187,7 @@ namespace QtNats {
         Subscription(Subscription&&) = delete;
         Subscription& operator=(Subscription&&) = delete;
 
-    signals:
+    Q_SIGNALS:
         void received(Message message);
 
     private:
@@ -259,22 +259,22 @@ namespace QtNats {
         PullSubscription* pullSubscribe(const QByteArray& subject, const QByteArray& stream, const QByteArray& consumer);
 
         jsCtx* getJsContext() const { return m_jsCtx; }
-        
-    signals:
+
+    Q_SIGNALS:
         void errorOccurred(natsStatus error, jsErrCode jsErr, const QString& text, Message msg);
 
     private:
         JetStream(QObject* parent) : QObject(parent) {}
 
         jsCtx* m_jsCtx = nullptr;
-        
+
         JsPublishAck doPublish(const Message& msg, jsPubOptions* opts);
         void doAsyncPublish(const Message& msg, jsPubOptions* opts);
 
         friend class Client;
     };
 
-    
+
 }
 
 Q_DECLARE_METATYPE(QtNats::Message)

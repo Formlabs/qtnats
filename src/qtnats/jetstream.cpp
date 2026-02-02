@@ -4,8 +4,8 @@ Licensed under the Apache License, Version 2.0 (the "License"); you may not use 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.See the License for the specific language governing permissions and  limitations under the License.
 */
 
-#include "qtnats.h"
-#include "qtnats_p.h"
+#include "qtnats/qtnats.h"
+#include "qtnats/qtnats_p.h"
 
 using namespace QtNats;
 
@@ -19,7 +19,7 @@ static void jsPubErrHandler(jsCtx*, jsPubAckErr* pae, void* closure)
 {
     JetStream* js = reinterpret_cast<JetStream*>(closure);
     Message msg (pae->Msg);
-    emit js->errorOccurred(pae->Err, pae->ErrCode, QString(pae->ErrText), msg);
+    Q_EMIT js->errorOccurred(pae->Err, pae->ErrCode, QString(pae->ErrText), msg);
 }
 
 JetStream* Client::jetStream(const JsOptions& options)
@@ -101,7 +101,7 @@ static JsPublishAck fromJsPubAck(jsPubAck* ack)
     result.sequence = ack->Sequence;
     result.duplicate = ack->Duplicate;
     jsPubAck_Destroy(ack);
-    
+
     return result;
 }
 
@@ -205,7 +205,7 @@ PullSubscription* JetStream::pullSubscribe(const QByteArray& subject, const QByt
 {
     auto sub = std::unique_ptr<PullSubscription>(new PullSubscription(nullptr));
     jsErrCode jsErr;
- 
+
     jsSubOptions subOpts;
     jsSubOptions_Init(&subOpts);
     subOpts.Stream = stream.constData();

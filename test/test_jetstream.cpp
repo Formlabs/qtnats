@@ -4,7 +4,7 @@ Licensed under the Apache License, Version 2.0 (the "License"); you may not use 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.See the License for the specific language governing permissions and  limitations under the License.
 */
 
-#include <qtnats.h>
+#include <../src/qtnats/qtnats.h>
 
 #include <iostream>
 
@@ -28,11 +28,11 @@ QString enumToString(T value)
 class JetStreamTestCase : public QObject
 {
     Q_OBJECT
-    
+
     QProcess natsServer;
     QProcess natsCli;
 
-private slots:
+private Q_SLOTS:
     void initTestCase();
     void cleanupTestCase();
 
@@ -52,7 +52,7 @@ void JetStreamTestCase::initTestCase()
     natsServer.start("nats-server", QStringList() << "-js");
     natsServer.waitForStarted();
     QTest::qWait(1000);
-    
+
     natsCli.start("nats", QStringList() << "stream" << "add" << "--config=stream_config.json");
     natsCli.waitForFinished();
 
@@ -69,7 +69,7 @@ void JetStreamTestCase::publish()
     try {
         Client c;
         c.connectToServer(QUrl("nats://localhost:4222"));
-        
+
         auto js = c.jetStream();
 
         connect(js, &JetStream::errorOccurred, [](natsStatus error, jsErrCode jsErr, const QString& text, Message msg) {
