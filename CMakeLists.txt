@@ -42,7 +42,7 @@ include_directories(${cnats_SOURCE_DIR}/src src)
 file(GLOB SOURCES "src/*.cpp")
 file(GLOB HEADERS "src/*.h")
 add_library(qtnats
-    SHARED
+    STATIC
         src/qtnats/jetstream.cpp
         src/qtnats/qtnats.cpp
         src/qtnats/qtnats.h
