@@ -12,9 +12,6 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_AUTOMOC ON)
 
-find_package(QT NAMES Qt6 Qt5 COMPONENTS Core REQUIRED)
-# according to https://gitlab.kitware.com/cmake/cmake/-/issues/20843 I need 2 find_package's to detect Qt5/Qt6
-find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Core Test Qml Quick REQUIRED)
 message("Using Qt version ${QT_VERSION}")
 
 # show that we're git-cloning cnats
@@ -36,13 +33,9 @@ set(BUILD_QT_NATS_INTEGRATION_TESTING OFF)
 
 FetchContent_MakeAvailable(cnats)
 
-include_directories(${cnats_SOURCE_DIR}/src src)
-
 # ------------- qtnats library ----------------------
-file(GLOB SOURCES "src/*.cpp")
-file(GLOB HEADERS "src/*.h")
 add_library(qtnats
-    SHARED
+    STATIC
         src/qtnats/jetstream.cpp
         src/qtnats/qtnats.cpp
         src/qtnats/qtnats.h
@@ -50,7 +43,13 @@ add_library(qtnats
         ${CMAKE_CURRENT_BINARY_DIR}/qtnats_export.h
 )
 
-target_include_directories(qtnats PUBLIC src ${CMAKE_CURRENT_BINARY_DIR})
+target_include_directories(qtnats
+    PUBLIC
+        src
+        ${CMAKE_CURRENT_BINARY_DIR}
+        ${cnats_SOURCE_DIR}/src
+)
+
 
 target_link_libraries(qtnats nats_static Qt::Core)
 
