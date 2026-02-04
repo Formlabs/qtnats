@@ -93,6 +93,11 @@ namespace QtNats {
         int maxPendingMessages;
         bool echo = true; //NB! reverted option
 
+        // mTLS options
+        QString certFile;      // Client certificate file path
+        QString keyFile;       // Client private key file path
+        QString caFile;        // CA certificate for server verification
+
         Options();
     };
 

@@ -60,8 +60,20 @@ static natsOptions* buildNatsOptions(const Options& opts)
     checkError(natsOptions_SetNoRandomize(o, !opts.randomize)); //NB! reverted flag
     checkError(natsOptions_SetTimeout(o, opts.timeout));
     checkError(natsOptions_SetName(o, opts.name.constData()));
-    //postpone until I have SSL
-    // natsOptions_SetSecure(o, secure);
+
+    // TLS/mTLS configuration
+    if (opts.secure) {
+        checkError(natsOptions_SetSecure(o, true));
+    }
+    if (!opts.caFile.isEmpty()) {
+        checkError(natsOptions_SetCATrustedCertificates(o, opts.caFile.toUtf8().constData()));
+    }
+    if (!opts.certFile.isEmpty() && !opts.keyFile.isEmpty()) {
+        checkError(natsOptions_LoadCertificatesChain(o,
+            opts.certFile.toUtf8().constData(),
+            opts.keyFile.toUtf8().constData()));
+    }
+
     checkError(natsOptions_SetVerbose(o, opts.verbose));
     checkError(natsOptions_SetPedantic(o, opts.pedantic));
     checkError(natsOptions_SetPingInterval(o, opts.pingInterval));
