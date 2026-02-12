@@ -18,7 +18,7 @@ static QString getNatsErrorText(natsStatus status) {
     if (status == NATS_OK)
         return QString();
 
-    return QString::fromLatin1(natsStatus_GetText(status));
+    return QString::fromUtf8(natsStatus_GetText(status));
 }
 
 void QtNats::checkError(natsStatus s)
@@ -325,7 +325,7 @@ QUrl Client::currentServer() const
     if (s != NATS_OK) {
         return QUrl();
     }
-    return QUrl(QString::fromLatin1(buffer));
+    return QUrl(QString::fromUtf8(buffer));
 }
 
 ConnectionStatus Client::status() const
@@ -338,7 +338,7 @@ QString Client::errorString() const
     // TODO handle when m_conn==nullptr ?
     const char* buffer = nullptr;
     natsConnection_GetLastError(m_conn, &buffer);
-    return QString::fromLatin1(buffer);
+    return QString::fromUtf8(buffer);
 }
 
 QByteArray Client::newInbox()
