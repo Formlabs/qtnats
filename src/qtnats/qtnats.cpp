@@ -6,6 +6,8 @@ Unless required by applicable law or agreed to in writing, software distributed 
 
 #include <opts.h>
 
+#include <algorithm>
+
 #include <QThread>
 #include <QFutureInterface>
 
@@ -177,7 +179,8 @@ static void asyncRequestCallback(natsConnection* /*nc*/, natsSubscription* natsS
         future_iface->reportException(Exception(NATS_TIMEOUT));
     }
     future_iface->reportFinished();
-    delete future_iface;
+    // Do NOT delete here — the Client's m_pendingAsyncRequests vector owns the shared_ptr,
+    // preventing premature destruction even if Client::close() runs concurrently.
     natsSubscription_Destroy(natsSub);
 }
 
@@ -258,6 +261,16 @@ void Client::close() noexcept
     semaphore.release();
     natsConnection_Destroy(m_conn);
     m_conn = nullptr;
+
+    // After natsConnection_Destroy, no more callbacks will fire.
+    // Resolve any async-request futures that were never completed.
+    for (auto& fi : m_pendingAsyncRequests) {
+        if (!fi->isFinished()) {
+            fi->reportException(Exception(NATS_CONNECTION_CLOSED));
+            fi->reportFinished();
+        }
+    }
+    m_pendingAsyncRequests.clear();
 }
 
 void Client::publish(const Message& msg) {
@@ -277,7 +290,7 @@ QFuture<Message> Client::asyncRequest(const Message& msg, qint64 timeout)
 {
     // QFutureInterface is undocumented; Qt6 provides QPromise instead
     // based on https://stackoverflow.com/questions/59197694/qt-how-to-create-a-qfuture-from-a-thread
-    auto future_iface = std::make_unique<QFutureInterface<Message>>();
+    auto future_iface = std::make_shared<QFutureInterface<Message>>();
     QByteArray inbox = Client::newInbox();
 
     natsSubscription* subscription = nullptr;
@@ -289,7 +302,7 @@ QFuture<Message> Client::asyncRequest(const Message& msg, qint64 timeout)
         NatsMsgPtr p = toNatsMsg(msg, inbox.constData());
         checkError(natsConnection_PublishMsg(m_conn, p.get()));
     } catch (...) {
-        // Destroy the subscription before the unique_ptr destroys the QFutureInterface,
+        // Destroy the subscription before the shared_ptr destroys the QFutureInterface,
         // otherwise the subscription callback would fire against freed memory.
         natsSubscription_Destroy(subscription);
         throw;
@@ -297,7 +310,15 @@ QFuture<Message> Client::asyncRequest(const Message& msg, qint64 timeout)
 
     future_iface->reportStarted();
     auto f = future_iface->future();
-    future_iface.release(); //will be deleted in asyncRequestCallback
+
+    // Purge completed futures, then track this one so close() can resolve it
+    // if the connection is torn down before the callback fires.
+    m_pendingAsyncRequests.erase(
+        std::remove_if(m_pendingAsyncRequests.begin(), m_pendingAsyncRequests.end(),
+            [](const std::shared_ptr<QFutureInterface<Message>>& fi) { return fi->isFinished(); }),
+        m_pendingAsyncRequests.end());
+    m_pendingAsyncRequests.push_back(std::move(future_iface));
+
     return f;
 }
 
