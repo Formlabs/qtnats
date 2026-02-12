@@ -283,10 +283,17 @@ QFuture<Message> Client::asyncRequest(const Message& msg, qint64 timeout)
     natsSubscription* subscription = nullptr;
 
     checkError(natsConnection_SubscribeTimeout(&subscription, m_conn, inbox.constData(), timeout, &asyncRequestCallback, future_iface.get()));
-    checkError(natsSubscription_AutoUnsubscribe(subscription, 1));
-    // can't do msg.reply = inbox; publish(msg); because "msg" is constant
-    NatsMsgPtr p = toNatsMsg(msg, inbox.constData());
-    checkError(natsConnection_PublishMsg(m_conn, p.get()));
+    try {
+        checkError(natsSubscription_AutoUnsubscribe(subscription, 1));
+        // can't do msg.reply = inbox; publish(msg); because "msg" is constant
+        NatsMsgPtr p = toNatsMsg(msg, inbox.constData());
+        checkError(natsConnection_PublishMsg(m_conn, p.get()));
+    } catch (...) {
+        // Destroy the subscription before the unique_ptr destroys the QFutureInterface,
+        // otherwise the subscription callback would fire against freed memory.
+        natsSubscription_Destroy(subscription);
+        throw;
+    }
 
     future_iface->reportStarted();
     auto f = future_iface->future();
