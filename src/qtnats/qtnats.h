@@ -7,6 +7,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 #pragma once
 
 #include <memory>
+#include <vector>
 
 #include <QObject>
 // I've received the clarification that Latin-1 should be used everywhere for strings, so QByteArray is clearer API than QString
@@ -93,6 +94,11 @@ namespace QtNats {
         int maxPendingMessages;
         bool echo = true; //NB! reverted option
 
+        // mTLS options
+        QString certFile;      // Client certificate file path
+        QString keyFile;       // Client private key file path
+        QString caFile;        // CA certificate for server verification
+
         Options();
     };
 
@@ -173,6 +179,10 @@ namespace QtNats {
     private:
         natsConnection* m_conn = nullptr;
         QSemaphore semaphore;
+
+        // Prevent QFutureInterface leak when close() destroys subscriptions
+        // before asyncRequest callbacks fire.
+        std::vector<std::shared_ptr<QFutureInterface<Message>>> m_pendingAsyncRequests;
 
         static void closedConnectionHandler(natsConnection* nc, void* closure);
     };

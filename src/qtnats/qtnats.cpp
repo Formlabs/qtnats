@@ -6,6 +6,8 @@ Unless required by applicable law or agreed to in writing, software distributed 
 
 #include <opts.h>
 
+#include <algorithm>
+
 #include <QThread>
 #include <QFutureInterface>
 
@@ -18,7 +20,7 @@ static QString getNatsErrorText(natsStatus status) {
     if (status == NATS_OK)
         return QString();
 
-    return QString::fromLatin1(natsStatus_GetText(status));
+    return QString::fromUtf8(natsStatus_GetText(status));
 }
 
 void QtNats::checkError(natsStatus s)
@@ -48,7 +50,7 @@ static natsOptions* buildNatsOptions(const Options& opts)
     if (opts.servers.size()) {
         QList<QByteArray> l;
         QVector<const char*> ptrs;
-        for (auto url : opts.servers) {
+        for (const auto& url : opts.servers) {
             // TODO check for invalid URL
             l.append(url.toEncoded());
             ptrs.append(l.last().constData());
@@ -60,8 +62,20 @@ static natsOptions* buildNatsOptions(const Options& opts)
     checkError(natsOptions_SetNoRandomize(o, !opts.randomize)); //NB! reverted flag
     checkError(natsOptions_SetTimeout(o, opts.timeout));
     checkError(natsOptions_SetName(o, opts.name.constData()));
-    //postpone until I have SSL
-    // natsOptions_SetSecure(o, secure);
+
+    // TLS/mTLS configuration
+    if (opts.secure) {
+        checkError(natsOptions_SetSecure(o, true));
+    }
+    if (!opts.caFile.isEmpty()) {
+        checkError(natsOptions_SetCATrustedCertificates(o, opts.caFile.toUtf8().constData()));
+    }
+    if (!opts.certFile.isEmpty() && !opts.keyFile.isEmpty()) {
+        checkError(natsOptions_LoadCertificatesChain(o,
+            opts.certFile.toUtf8().constData(),
+            opts.keyFile.toUtf8().constData()));
+    }
+
     checkError(natsOptions_SetVerbose(o, opts.verbose));
     checkError(natsOptions_SetPedantic(o, opts.pedantic));
     checkError(natsOptions_SetPingInterval(o, opts.pingInterval));
@@ -100,10 +114,10 @@ Message::Message(natsMsg* msg) noexcept:
         s = natsMsgHeader_Values(msg, keys[i], &values, &valueCount);
         if (s != NATS_OK)
             continue;
-        QByteArray key (keys[i]);
+        const QByteArray key (keys[i]);
 
         for (int j = 0; j < valueCount; j++) {
-            QByteArray value (values[j]);
+            const QByteArray value (values[j]);
             headers.insert(key, value);
         }
         free(values);
@@ -142,14 +156,14 @@ NatsMsgPtr QtNats::toNatsMsg(const Message& msg, const char* reply)
 }
 
 void QtNats::subscriptionCallback(natsConnection* /*nc*/, natsSubscription* /*sub*/, natsMsg* msg, void* closure) {
-    Subscription* sub = reinterpret_cast<Subscription*>(closure);
+    auto* const sub = reinterpret_cast<Subscription*>(closure);
 
-    Message m(msg);
+    const Message m(msg);
     Q_EMIT sub->received(m);
 }
 
 static void asyncRequestCallback(natsConnection* /*nc*/, natsSubscription* natsSub, natsMsg* msg, void* closure) {
-    auto future_iface = reinterpret_cast<QFutureInterface<Message>*>(closure);
+    auto* const future_iface = reinterpret_cast<QFutureInterface<Message>*>(closure);
 
     if (msg) {
         if (natsMsg_IsNoResponders(msg)) {
@@ -157,7 +171,7 @@ static void asyncRequestCallback(natsConnection* /*nc*/, natsSubscription* natsS
             natsMsg_Destroy(msg);
         }
         else {
-            Message m(msg);
+            const Message m(msg);
             future_iface->reportResult(m);
         }
     }
@@ -165,29 +179,30 @@ static void asyncRequestCallback(natsConnection* /*nc*/, natsSubscription* natsS
         future_iface->reportException(Exception(NATS_TIMEOUT));
     }
     future_iface->reportFinished();
-    delete future_iface;
+    // Do NOT delete here — the Client's m_pendingAsyncRequests vector owns the shared_ptr,
+    // preventing premature destruction even if Client::close() runs concurrently.
     natsSubscription_Destroy(natsSub);
 }
 
 static void errorHandler(natsConnection* /*nc*/, natsSubscription* /*subscription*/, natsStatus err, void* closure) {
-    Client* c = reinterpret_cast<Client*>(closure);
+    auto* const c = reinterpret_cast<Client*>(closure);
     Q_EMIT c->errorOccurred(err, getNatsErrorText(err));
 }
 
 void Client::closedConnectionHandler(natsConnection* /*nc*/, void *closure) {
-    Client* c = reinterpret_cast<Client*>(closure);
+    auto* const c = reinterpret_cast<Client*>(closure);
     //can ask for last error here?
     Q_EMIT c->statusChanged(ConnectionStatus::Closed);
     c->semaphore.release();
 }
 
 static void reconnectedHandler(natsConnection* /*nc*/, void *closure) {
-    Client* c = reinterpret_cast<Client*>(closure);
+    auto* const c = reinterpret_cast<Client*>(closure);
     Q_EMIT c->statusChanged(ConnectionStatus::Connected);
 }
 
 static void disconnectedHandler(natsConnection* /*nc*/, void *closure) {
-    Client* c = reinterpret_cast<Client*>(closure);
+    auto* const c = reinterpret_cast<Client*>(closure);
     Q_EMIT c->statusChanged(ConnectionStatus::Disconnected);
 }
 
@@ -195,7 +210,7 @@ Client::Client(QObject* parent):
     QObject(parent),
     semaphore(1)
 {
-    int cpuCoresCount = QThread::idealThreadCount(); //this function may fail, thus the check
+    const int cpuCoresCount = QThread::idealThreadCount(); //this function may fail, thus the check
     if (cpuCoresCount >= 2) {
         nats_SetMessageDeliveryPoolSize(cpuCoresCount);
     }
@@ -209,8 +224,8 @@ Client::~Client() noexcept
 void Client::connectToServer(const Options& opts)
 {
     using NatsOptsPtr = std::unique_ptr<natsOptions, decltype(&natsOptions_Destroy)>;
-    natsOptions* nats_opts = buildNatsOptions(opts);
-    NatsOptsPtr optsPtr(nats_opts, &natsOptions_Destroy);
+    natsOptions* const nats_opts = buildNatsOptions(opts);
+    const NatsOptsPtr optsPtr(nats_opts, &natsOptions_Destroy);
 
     //don't create a thread for each subscription, since we may have a lot of subscriptions
     //number of threads in the pool is set by nats_SetMessageDeliveryPoolSize above
@@ -246,17 +261,27 @@ void Client::close() noexcept
     semaphore.release();
     natsConnection_Destroy(m_conn);
     m_conn = nullptr;
+
+    // After natsConnection_Destroy, no more callbacks will fire.
+    // Resolve any async-request futures that were never completed.
+    for (auto& fi : m_pendingAsyncRequests) {
+        if (!fi->isFinished()) {
+            fi->reportException(Exception(NATS_CONNECTION_CLOSED));
+            fi->reportFinished();
+        }
+    }
+    m_pendingAsyncRequests.clear();
 }
 
 void Client::publish(const Message& msg) {
-    NatsMsgPtr p = toNatsMsg(msg);
+    const NatsMsgPtr p = toNatsMsg(msg);
     checkError(natsConnection_PublishMsg(m_conn, p.get()));
 }
 
 Message Client::request(const Message& msg, qint64 timeout)
 {
     natsMsg* replyMsg;
-    NatsMsgPtr p = toNatsMsg(msg);
+    const NatsMsgPtr p = toNatsMsg(msg);
     checkError(natsConnection_RequestMsg(&replyMsg, m_conn, p.get(), timeout));
     return Message(replyMsg);
 }
@@ -265,20 +290,35 @@ QFuture<Message> Client::asyncRequest(const Message& msg, qint64 timeout)
 {
     // QFutureInterface is undocumented; Qt6 provides QPromise instead
     // based on https://stackoverflow.com/questions/59197694/qt-how-to-create-a-qfuture-from-a-thread
-    auto future_iface = std::make_unique<QFutureInterface<Message>>();
-    QByteArray inbox = Client::newInbox();
+    auto future_iface = std::make_shared<QFutureInterface<Message>>();
+    const QByteArray inbox = Client::newInbox();
 
     natsSubscription* subscription = nullptr;
 
     checkError(natsConnection_SubscribeTimeout(&subscription, m_conn, inbox.constData(), timeout, &asyncRequestCallback, future_iface.get()));
-    checkError(natsSubscription_AutoUnsubscribe(subscription, 1));
-    // can't do msg.reply = inbox; publish(msg); because "msg" is constant
-    NatsMsgPtr p = toNatsMsg(msg, inbox.constData());
-    checkError(natsConnection_PublishMsg(m_conn, p.get()));
+    try {
+        checkError(natsSubscription_AutoUnsubscribe(subscription, 1));
+        // can't do msg.reply = inbox; publish(msg); because "msg" is constant
+        const NatsMsgPtr p = toNatsMsg(msg, inbox.constData());
+        checkError(natsConnection_PublishMsg(m_conn, p.get()));
+    } catch (...) {
+        // Destroy the subscription before the shared_ptr destroys the QFutureInterface,
+        // otherwise the subscription callback would fire against freed memory.
+        natsSubscription_Destroy(subscription);
+        throw;
+    }
 
     future_iface->reportStarted();
     auto f = future_iface->future();
-    future_iface.release(); //will be deleted in asyncRequestCallback
+
+    // Purge completed futures, then track this one so close() can resolve it
+    // if the connection is torn down before the callback fires.
+    m_pendingAsyncRequests.erase(
+        std::remove_if(m_pendingAsyncRequests.begin(), m_pendingAsyncRequests.end(),
+            [](const std::shared_ptr<QFutureInterface<Message>>& fi) { return fi->isFinished(); }),
+        m_pendingAsyncRequests.end());
+    m_pendingAsyncRequests.push_back(std::move(future_iface));
+
     return f;
 }
 
@@ -302,18 +342,18 @@ Subscription* Client::subscribe(const QByteArray& subject, const QByteArray& que
 
 bool Client::ping(qint64 timeout) noexcept
 {
-    natsStatus s = natsConnection_FlushTimeout(m_conn, timeout);
+    const natsStatus s = natsConnection_FlushTimeout(m_conn, timeout);
     return (s == NATS_OK);
 }
 
 QUrl Client::currentServer() const
 {
     char buffer[500];
-    natsStatus s = natsConnection_GetConnectedUrl(m_conn, buffer, sizeof(buffer));
+    const natsStatus s = natsConnection_GetConnectedUrl(m_conn, buffer, sizeof(buffer));
     if (s != NATS_OK) {
         return QUrl();
     }
-    return QUrl(QString::fromLatin1(buffer));
+    return QUrl(QString::fromUtf8(buffer));
 }
 
 ConnectionStatus Client::status() const
@@ -326,14 +366,14 @@ QString Client::errorString() const
     // TODO handle when m_conn==nullptr ?
     const char* buffer = nullptr;
     natsConnection_GetLastError(m_conn, &buffer);
-    return QString::fromLatin1(buffer);
+    return QString::fromUtf8(buffer);
 }
 
 QByteArray Client::newInbox()
 {
     natsInbox* inbox = nullptr;
     natsInbox_Create(&inbox);
-    QByteArray result (inbox);
+    const QByteArray result (inbox);
     natsInbox_Destroy(inbox);
     return result;
 }
