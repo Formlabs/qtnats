@@ -18,9 +18,7 @@ message("Using Qt version ${QT_VERSION}")
 set(FETCHCONTENT_QUIET FALSE)
 FetchContent_Declare(
   cnats
-  GIT_REPOSITORY https://github.com/nats-io/nats.c.git
-  GIT_TAG        v3.3.0
-  GIT_SHALLOW    ON
+  URL https://github.com/nats-io/nats.c/archive/refs/tags/v3.3.0.tar.gz
 )
 
 set(NATS_BUILD_WITH_TLS ON)
