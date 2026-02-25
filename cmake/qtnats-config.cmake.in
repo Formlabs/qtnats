@@ -1,0 +1,10 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+find_dependency(cnats CONFIG)
+find_dependency(Qt6 COMPONENTS Core)
+
+include("${CMAKE_CURRENT_LIST_DIR}/qtnats-targets.cmake")
+
+check_required_components(qtnats)

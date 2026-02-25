@@ -4,8 +4,6 @@ Licensed under the Apache License, Version 2.0 (the "License"); you may not use 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.See the License for the specific language governing permissions and  limitations under the License.
 */
 
-#include <opts.h>
-
 #include <algorithm>
 
 #include <QThread>
@@ -31,15 +29,16 @@ void QtNats::checkError(natsStatus s)
 
 Options::Options()
 {
-    // don't want to include opts.h in qtnats.h
-    timeout = NATS_OPTS_DEFAULT_TIMEOUT;
-    pingInterval = NATS_OPTS_DEFAULT_PING_INTERVAL;
-    maxPingsOut = NATS_OPTS_DEFAULT_MAX_PING_OUT;
-    ioBufferSize = NATS_OPTS_DEFAULT_IO_BUF_SIZE;
-    maxReconnect = NATS_OPTS_DEFAULT_MAX_RECONNECT;
-    reconnectWait = NATS_OPTS_DEFAULT_RECONNECT_WAIT;
-    reconnectBufferSize = NATS_OPTS_DEFAULT_RECONNECT_BUF_SIZE;
-    maxPendingMessages = NATS_OPTS_DEFAULT_MAX_PENDING_MSGS;
+    // These defaults mirror the cnats opts.h constants.
+    // We hardcode them to avoid depending on the private cnats header.
+    timeout = 2000;             // NATS_OPTS_DEFAULT_TIMEOUT (ms)
+    pingInterval = 120000;      // NATS_OPTS_DEFAULT_PING_INTERVAL (ms)
+    maxPingsOut = 2;            // NATS_OPTS_DEFAULT_MAX_PING_OUT
+    ioBufferSize = 32768;       // NATS_OPTS_DEFAULT_IO_BUF_SIZE
+    maxReconnect = 60;          // NATS_OPTS_DEFAULT_MAX_RECONNECT
+    reconnectWait = 2000;       // NATS_OPTS_DEFAULT_RECONNECT_WAIT (ms)
+    reconnectBufferSize = 8 * 1024 * 1024; // NATS_OPTS_DEFAULT_RECONNECT_BUF_SIZE
+    maxPendingMessages = 65536; // NATS_OPTS_DEFAULT_MAX_PENDING_MSGS
 }
 
 static natsOptions* buildNatsOptions(const Options& opts)
