@@ -10,7 +10,29 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_AUTOMOC ON)
 
-find_package(cnats CONFIG REQUIRED)
+find_package(cnats CONFIG QUIET)
+if(NOT cnats_FOUND)
+    message(STATUS "cnats not found via find_package, fetching via FetchContent...")
+    include(FetchContent)
+    FetchContent_Declare(cnats
+        URL https://github.com/nats-io/nats.c/archive/refs/tags/v3.10.1.tar.gz
+        URL_HASH SHA256=1765533bbc1270ab7c89e3481b4778db7d1e7b4db2fa906b6602cd5c02846222
+    )
+    set(NATS_BUILD_WITH_TLS ON CACHE BOOL "" FORCE)
+    set(NATS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(NATS_BUILD_STREAMING OFF CACHE BOOL "" FORCE)
+    set(BUILD_TESTING_SAVED "${BUILD_TESTING}")
+    set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(cnats)
+    set(BUILD_TESTING "${BUILD_TESTING_SAVED}" CACHE BOOL "" FORCE)
+endif()
+
+if(TARGET cnats::nats_static)
+    set(CNATS_TARGET cnats::nats_static)
+else()
+    set(CNATS_TARGET nats_static)
+endif()
+
 find_package(Qt6 REQUIRED COMPONENTS Core)
 
 # ------------- qtnats library ----------------------
@@ -30,7 +52,7 @@ target_include_directories(qtnats
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
-target_link_libraries(qtnats PUBLIC cnats::nats_static Qt6::Core)
+target_link_libraries(qtnats PUBLIC ${CNATS_TARGET} Qt6::Core)
 
 set_target_properties(qtnats PROPERTIES
     VERSION ${PROJECT_VERSION}
