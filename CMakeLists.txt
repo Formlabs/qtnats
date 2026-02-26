@@ -23,8 +23,10 @@ if(NOT cnats_FOUND)
     set(NATS_BUILD_STREAMING OFF CACHE BOOL "" FORCE)
     set(BUILD_TESTING_SAVED "${BUILD_TESTING}")
     set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-    FetchContent_MakeAvailable(cnats)
+    FetchContent_Populate(cnats)
+    add_subdirectory(${cnats_SOURCE_DIR} ${cnats_BINARY_DIR} EXCLUDE_FROM_ALL)
     set(BUILD_TESTING "${BUILD_TESTING_SAVED}" CACHE BOOL "" FORCE)
+    set(CNATS_FETCHED TRUE)
 endif()
 
 if(TARGET cnats::nats_static)
@@ -65,43 +67,49 @@ GENERATE_EXPORT_HEADER(qtnats
 )
 
 # ------------- install rules ----------------------
-install(TARGETS qtnats
-    EXPORT qtnats-targets
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-)
+# Install/export rules require cnats from find_package (e.g. vcpkg).
+# When cnats is fetched via FetchContent, skip these to avoid conflicts
+# with cnats's own export sets. FetchContent consumers use add_subdirectory
+# and don't need install targets.
+if(NOT CNATS_FETCHED)
+    install(TARGETS qtnats
+        EXPORT qtnats-targets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
 
-install(FILES
-    src/qtnats/qtnats.h
-    src/qtnats/qtnats_p.h
-    ${CMAKE_CURRENT_BINARY_DIR}/qtnats/qtnats_export.h
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/qtnats
-)
+    install(FILES
+        src/qtnats/qtnats.h
+        src/qtnats/qtnats_p.h
+        ${CMAKE_CURRENT_BINARY_DIR}/qtnats/qtnats_export.h
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/qtnats
+    )
 
-install(EXPORT qtnats-targets
-    NAMESPACE qtnats::
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/qtnats
-)
+    install(EXPORT qtnats-targets
+        NAMESPACE qtnats::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/qtnats
+    )
 
-include(CMakePackageConfigHelpers)
+    include(CMakePackageConfigHelpers)
 
-configure_package_config_file(
-    cmake/qtnats-config.cmake.in
-    ${CMAKE_CURRENT_BINARY_DIR}/qtnats-config.cmake
-    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/qtnats
-)
+    configure_package_config_file(
+        cmake/qtnats-config.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/qtnats-config.cmake
+        INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/qtnats
+    )
 
-write_basic_package_version_file(
-    ${CMAKE_CURRENT_BINARY_DIR}/qtnats-config-version.cmake
-    COMPATIBILITY SameMajorVersion
-)
+    write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/qtnats-config-version.cmake
+        COMPATIBILITY SameMajorVersion
+    )
 
-install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/qtnats-config.cmake
-    ${CMAKE_CURRENT_BINARY_DIR}/qtnats-config-version.cmake
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/qtnats
-)
+    install(FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/qtnats-config.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/qtnats-config-version.cmake
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/qtnats
+    )
+endif()
 
 # integration tests (these spin up nats server and nats client)
 set(BUILD_QT_NATS_INTEGRATION_TESTING OFF CACHE BOOL "Build qtnats integration tests")
