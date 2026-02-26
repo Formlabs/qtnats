@@ -15,8 +15,8 @@ if(NOT cnats_FOUND)
     message(STATUS "cnats not found via find_package, fetching via FetchContent...")
     include(FetchContent)
     FetchContent_Declare(cnats
-        URL https://github.com/nats-io/nats.c/archive/refs/tags/v3.10.1.tar.gz
-        URL_HASH SHA256=1765533bbc1270ab7c89e3481b4778db7d1e7b4db2fa906b6602cd5c02846222
+        URL https://github.com/nats-io/nats.c/archive/refs/tags/v3.3.0.tar.gz
+        URL_HASH SHA256=16e700d912034faefb235a955bd920cfe4d449a260d0371b9694d722eb617ae1
     )
     set(NATS_BUILD_WITH_TLS ON CACHE BOOL "" FORCE)
     set(NATS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -26,6 +26,15 @@ if(NOT cnats_FOUND)
     FetchContent_Populate(cnats)
     add_subdirectory(${cnats_SOURCE_DIR} ${cnats_BINARY_DIR} EXCLUDE_FROM_ALL)
     set(BUILD_TESTING "${BUILD_TESTING_SAVED}" CACHE BOOL "" FORCE)
+
+    # cnats exposes <nats.h> at build time, but vcpkg installs it as <nats/nats.h>.
+    # Create a wrapper so #include <nats/nats.h> works in both cases.
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/cnats_include/nats")
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/cnats_include/nats/nats.h"
+        "#include <nats.h>\n")
+    target_include_directories(nats_static PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/cnats_include>)
+
     set(CNATS_FETCHED TRUE)
 endif()
 
