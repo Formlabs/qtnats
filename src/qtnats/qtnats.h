@@ -18,9 +18,9 @@ Unless required by applicable law or agreed to in writing, software distributed 
 #include <QMultiHash>
 #include <QSemaphore>
 
-#include <nats.h>
+#include <nats/nats.h>
 
-#include <qtnats_export.h>
+#include <qtnats/qtnats_export.h>
 
 namespace QtNats {
 
