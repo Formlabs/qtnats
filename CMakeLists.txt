@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.16)
 
 project(QtNatsProject VERSION 0.1.0)
 
-include(CMakePrintHelpers)
 include(GenerateExportHeader)
 include(GNUInstallDirs)
 
@@ -15,12 +14,13 @@ if(NOT cnats_FOUND)
     message(STATUS "cnats not found via find_package, fetching via FetchContent...")
     include(FetchContent)
     FetchContent_Declare(cnats
-        URL https://github.com/nats-io/nats.c/archive/refs/tags/v3.3.0.tar.gz
-        URL_HASH SHA256=16e700d912034faefb235a955bd920cfe4d449a260d0371b9694d722eb617ae1
+        URL https://github.com/nats-io/nats.c/archive/refs/tags/v3.10.1.tar.gz
+        URL_HASH SHA256=1765533bbc1270ab7c89e3481b4778db7d1e7b4db2fa906b6602cd5c02846222
     )
     set(NATS_BUILD_WITH_TLS ON CACHE BOOL "" FORCE)
     set(NATS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(NATS_BUILD_STREAMING OFF CACHE BOOL "" FORCE)
+    set(NATS_BUILD_LIB_SHARED OFF CACHE BOOL "" FORCE)
     set(BUILD_TESTING_SAVED "${BUILD_TESTING}")
     set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
     FetchContent_Populate(cnats)
@@ -35,10 +35,9 @@ if(NOT cnats_FOUND)
     target_include_directories(nats_static PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/cnats_include>)
 
-    set(CNATS_FETCHED TRUE)
 endif()
 
-if(TARGET cnats::nats_static)
+if(cnats_FOUND)
     set(CNATS_TARGET cnats::nats_static)
 else()
     set(CNATS_TARGET nats_static)
@@ -80,7 +79,7 @@ GENERATE_EXPORT_HEADER(qtnats
 # When cnats is fetched via FetchContent, skip these to avoid conflicts
 # with cnats's own export sets. FetchContent consumers use add_subdirectory
 # and don't need install targets.
-if(NOT CNATS_FETCHED)
+if(cnats_FOUND)
     install(TARGETS qtnats
         EXPORT qtnats-targets
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
