@@ -19,18 +19,14 @@ static void checkJsError(natsStatus s, jsErrCode js) {
 }
 
 static void jsPubErrHandler(jsCtx*, jsPubAckErr* pae, void* closure) {
-    auto* const js = reinterpret_cast<JetStream*>(closure);
-    const Message msg(pae->Msg);
+    auto* const js = static_cast<JetStream*>(closure);
+    const Message msg = fromC(NatsMsgPtr(pae->Msg));
     Q_EMIT js->errorOccurred(pae->Err, pae->ErrCode, QString(pae->ErrText), msg);
 }
 
 JetStream* Client::jetStream(const JsOptions& options) {
     auto* const js = new JetStream(this);
-    jsOptions jsOpts;
-    jsOptions_Init(&jsOpts);
-    jsOpts.Domain = options.domain.constData();
-    jsOpts.Wait = options.timeout;
-
+    jsOptions jsOpts = toC(options);
     jsOpts.PublishAsync.ErrHandler = &jsPubErrHandler;
     jsOpts.PublishAsync.ErrHandlerClosure = js;
 
@@ -68,7 +64,7 @@ QList<Message> PullSubscription::fetch(int batch, qint64 timeout) {
     checkJsError(s, jsErr);
     QList<Message> result;
     for (int i = 0; i < list.Count; i++) {
-        result += Message(list.Msgs[i]);
+        result += fromC(NatsMsgPtr(list.Msgs[i]));
         list.Msgs[i] = nullptr; // natsMsgList_Destroy should destroy only the list, and keep the messages
     }
     natsMsgList_Destroy(&list);
@@ -77,45 +73,9 @@ QList<Message> PullSubscription::fetch(int batch, qint64 timeout) {
 
 JetStream::~JetStream() noexcept { jsCtx_Destroy(m_jsCtx); }
 
-static JsPublishAck fromJsPubAck(jsPubAck* ack) {
-    JsPublishAck result;
-
-    result.stream = QByteArray(ack->Stream);
-    result.domain = QByteArray(ack->Domain);
-    result.sequence = ack->Sequence;
-    result.duplicate = ack->Duplicate;
-    jsPubAck_Destroy(ack);
-
-    return result;
-}
-
-static void jsPublishOptionsToC(const JsPublishOptions& opts, jsPubOptions* out) {
-    jsPubOptions_Init(out);
-    out->MaxWait = opts.timeout;
-
-    QByteArray msgID;
-    if (opts.msgID.size()) {
-        out->MsgId = opts.msgID.constData();
-    }
-
-    QByteArray expectStream;
-    if (opts.expectStream.size()) {
-        out->ExpectStream = opts.expectStream.constData();
-    }
-
-    QByteArray expectLastMessageID;
-    if (opts.expectLastMessageID.size()) {
-        out->ExpectLastMsgId = opts.expectLastMessageID.constData();
-    }
-
-    out->ExpectLastSeq = opts.expectLastSequence;
-    out->ExpectLastSubjectSeq = opts.expectLastSubjectSequence;
-    out->ExpectNoMessage = opts.expectNoMessage;
-}
 
 JsPublishAck JetStream::publish(const Message& msg, const JsPublishOptions& opts) {
-    jsPubOptions jsOpts;
-    jsPublishOptionsToC(opts, &jsOpts);
+    jsPubOptions jsOpts = toC(opts);
     return doPublish(msg, &jsOpts);
 }
 
@@ -129,8 +89,7 @@ JsPublishAck JetStream::publish(const Message& msg, qint64 timeout) {
 }
 
 void JetStream::asyncPublish(const Message& msg, const JsPublishOptions& opts) {
-    jsPubOptions jsOpts;
-    jsPublishOptionsToC(opts, &jsOpts);
+    jsPubOptions jsOpts = toC(opts);
     doAsyncPublish(msg, &jsOpts);
 }
 
@@ -164,12 +123,8 @@ void JetStream::waitForPublishCompleted(qint64 timeout) {
 }
 
 Subscription* JetStream::subscribe(const QByteArray& subject, const QByteArray& stream, const QByteArray& consumer) {
-    jsSubOptions subOpts;
-    jsSubOptions_Init(&subOpts);
-    subOpts.Stream = stream.constData();
-    subOpts.Consumer = consumer.constData();
-    subOpts.ManualAck =
-        true; // avoid _autoAckCB in cnats internals, because it takes over ownership of delivered messages
+    // manualAck=true: avoid _autoAckCB in cnats internals, because it takes over ownership of delivered messages
+    jsSubOptions subOpts = toC(stream, consumer, /*manualAck=*/true);
     auto sub = std::unique_ptr<Subscription>(new Subscription(nullptr));
     jsErrCode jsErr;
     const natsStatus s = js_Subscribe(
@@ -187,11 +142,7 @@ PullSubscription* JetStream::pullSubscribe(
 ) {
     auto sub = std::unique_ptr<PullSubscription>(new PullSubscription(nullptr));
     jsErrCode jsErr;
-
-    jsSubOptions subOpts;
-    jsSubOptions_Init(&subOpts);
-    subOpts.Stream = stream.constData();
-    subOpts.Consumer = consumer.constData();
+    jsSubOptions subOpts = toC(stream, consumer);
 
     const natsStatus s =
         js_PullSubscribe(&sub->m_sub, m_jsCtx, subject.constData(), consumer.constData(), nullptr, &subOpts, &jsErr);
@@ -201,14 +152,14 @@ PullSubscription* JetStream::pullSubscribe(
 }
 
 JsPublishAck JetStream::doPublish(const Message& msg, jsPubOptions* opts) {
-    jsErrCode jsErr = jsErrCode(0);
+    auto jsErr = static_cast<jsErrCode>(0);
     jsPubAck* ack = nullptr;
-    const NatsMsgPtr cnatsMsg = toNatsMsg(msg);
+    const NatsMsgPtr cnatsMsg = asC(msg);
 
     const natsStatus s = js_PublishMsg(&ack, m_jsCtx, cnatsMsg.get(), opts, &jsErr);
     checkJsError(s, jsErr);
 
-    return fromJsPubAck(ack);
+    return fromC(JsPubAckPtr(ack));
 }
 
 void JetStream::doAsyncPublish(const Message& msg, jsPubOptions* opts) {

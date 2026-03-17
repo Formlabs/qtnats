@@ -10,6 +10,7 @@ governing permissions and  limitations under the License.
 #pragma once
 
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include <QObject>
@@ -101,9 +102,9 @@ struct QTNATS_EXPORT Options {
 };
 
 struct QTNATS_EXPORT Message {
-    Message() {}
+    Message() = default;
 
-    Message(const QByteArray& in_subject, const QByteArray& in_data) : subject(in_subject), data(in_data) {}
+    Message(QByteArray in_subject, const QByteArray& in_data) : subject(std::move(in_subject)), data(in_data) {}
 
     explicit Message(natsMsg* cmsg) noexcept;
 
