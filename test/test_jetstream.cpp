@@ -19,14 +19,12 @@ using namespace std;
 using namespace QtNats;
 
 template<typename T>
-QString enumToString(T value)
-{
+QString enumToString(T value) {
     int castValue = static_cast<int>(value);
     return QMetaEnum::fromType<T>().valueToKey(castValue);
 }
 
-class JetStreamTestCase : public QObject
-{
+class JetStreamTestCase : public QObject {
     Q_OBJECT
 
     QProcess natsServer;
@@ -34,20 +32,22 @@ class JetStreamTestCase : public QObject
 
 private Q_SLOTS:
     void initTestCase();
+
     void cleanupTestCase();
 
     void publish();
+
     void pullSubscribe();
+
     void pushSubscribe();
 };
 
-void JetStreamTestCase::initTestCase()
-{
+void JetStreamTestCase::initTestCase() {
     QDir::setCurrent("../qtnats/test"); //default pwd is "build"
 
     connect(&natsServer, &QProcess::stateChanged, [](QProcess::ProcessState newState) {
         cout << "nats-server: " << qPrintable(enumToString(newState)) << endl;
-        });
+    });
 
     natsServer.start("nats-server", QStringList() << "-js");
     natsServer.waitForStarted();
@@ -55,24 +55,21 @@ void JetStreamTestCase::initTestCase()
 
     natsCli.start("nats", QStringList() << "stream" << "add" << "--config=stream_config.json");
     natsCli.waitForFinished();
-
 }
 
-void JetStreamTestCase::cleanupTestCase()
-{
+void JetStreamTestCase::cleanupTestCase() {
     natsServer.close();
     natsServer.waitForFinished();
 }
 
-void JetStreamTestCase::publish()
-{
+void JetStreamTestCase::publish() {
     try {
         Client c;
         c.connectToServer(QUrl("nats://localhost:4222"));
 
         auto js = c.jetStream();
 
-        connect(js, &JetStream::errorOccurred, [](natsStatus error, jsErrCode jsErr, const QString& text, Message msg) {
+        connect(js, &JetStream::errorOccurred, [](natsStatus error, jsErrCode jsErr, const QString &text, Message msg) {
             cout << "JS error: " << qPrintable(text) << endl;
         });
 
@@ -84,8 +81,7 @@ void JetStreamTestCase::publish()
             js->asyncPublish(Message("test.1", "HI"), 1000);
         }
         js->waitForPublishCompleted();
-    }
-    catch (const QException& e) {
+    } catch (const QException &e) {
         QFAIL(e.what());
     }
 }
@@ -97,43 +93,48 @@ void JetStreamTestCase::pullSubscribe() {
 
         auto js = c.jetStream();
 
-        natsCli.start("nats", QStringList() << "consumer" << "add" << "MY_STREAM" << "PULL_CONSUMER" << "--config=pull_consumer_config.json");
+        natsCli.start(
+            "nats",
+            QStringList() << "consumer" << "add" << "MY_STREAM" << "PULL_CONSUMER" <<
+            "--config=pull_consumer_config.json");
         natsCli.waitForFinished();
 
-        natsCli.start("nats", QStringList() << "publish" << "--count=10" << "-H" << "hdr1:val1" << "test.pull" << "hello JS");
+        natsCli.start(
+            "nats", QStringList() << "publish" << "--count=10" << "-H" << "hdr1:val1" << "test.pull" << "hello JS");
         natsCli.waitForFinished();
 
         auto sub = js->pullSubscribe("test.pull", "MY_STREAM", "PULL_CONSUMER");
 
         auto msgList = sub->fetch(10);
 
-        for (Message m : msgList) {
+        for (Message m: msgList) {
             m.ack();
         }
 
         QCOMPARE(msgList.size(), 10);
-        for (Message m : msgList) {
+        for (Message m: msgList) {
             QCOMPARE(m.data, "hello JS");
             QCOMPARE(m.subject, "test.pull");
             auto val = m.headers.values("hdr1");
             QCOMPARE(val.size(), 1);
             QCOMPARE(val[0], "val1");
         }
-    }
-    catch (const QException& e) {
+    } catch (const QException &e) {
         QFAIL(e.what());
     }
 }
 
-void JetStreamTestCase::pushSubscribe()
-{
+void JetStreamTestCase::pushSubscribe() {
     try {
         Client c;
         c.connectToServer(QUrl("nats://localhost:4222"));
 
         auto js = c.jetStream();
 
-        natsCli.start("nats", QStringList() << "consumer" << "add" << "MY_STREAM" << "PUSH_CONSUMER" << "--config=push_consumer_config.json");
+        natsCli.start(
+            "nats",
+            QStringList() << "consumer" << "add" << "MY_STREAM" << "PUSH_CONSUMER" <<
+            "--config=push_consumer_config.json");
         natsCli.waitForFinished();
 
         auto sub = js->subscribe("test.push", "MY_STREAM", "PUSH_CONSUMER");
@@ -150,12 +151,11 @@ void JetStreamTestCase::pushSubscribe()
         QTest::qWait(1000);
 
         QCOMPARE(msgList.size(), 10);
-        for (Message m : msgList) {
+        for (Message m: msgList) {
             QCOMPARE(m.data, "hello JS again");
             QCOMPARE(m.subject, "test.push");
         }
-    }
-    catch (const QException& e) {
+    } catch (const QException &e) {
         QFAIL(e.what());
     }
 }
