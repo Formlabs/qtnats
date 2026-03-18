@@ -27,6 +27,11 @@ static QString getNatsErrorText(natsStatus status) {
 // need to pass it through queued signal-slot connections
 static const int messageTypeId = qRegisterMetaType<Message>();
 
+// =============================================================================
+// Data types  (analogous to nats.h types)
+// =============================================================================
+#pragma region Data types
+
 Message::Message(natsMsg* msg) noexcept : m_natsMsg(msg, &natsMsg_Destroy) {
     subject = QByteArray(natsMsg_GetSubject(msg));
     data = QByteArray(natsMsg_GetData(msg), natsMsg_GetDataLength(msg));
@@ -57,6 +62,13 @@ Message::Message(natsMsg* msg) noexcept : m_natsMsg(msg, &natsMsg_Destroy) {
 
     free(keys);
 };
+
+#pragma endregion
+
+// =============================================================================
+// Classes
+// =============================================================================
+#pragma region Classes
 
 static void asyncRequestCallback(natsConnection* /*nc*/, natsSubscription* natsSub, natsMsg* msg, void* closure) {
     auto* const future_iface = reinterpret_cast<QFutureInterface<Message>*>(closure);
@@ -261,3 +273,5 @@ QByteArray Client::newInbox() {
 }
 
 Subscription::~Subscription() noexcept { natsSubscription_Destroy(m_sub); }
+
+#pragma endregion

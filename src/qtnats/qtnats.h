@@ -32,18 +32,6 @@ QTNATS_EXPORT Q_NAMESPACE // we need the "export" directive due to https://bugre
 
     using MessageHeaders = QMultiHash<QByteArray, QByteArray>;
 
-enum class ConnectionStatus {
-    Disconnected = NATS_CONN_STATUS_DISCONNECTED,
-    Connecting = NATS_CONN_STATUS_CONNECTING,
-    Connected = NATS_CONN_STATUS_CONNECTED,
-    Closed = NATS_CONN_STATUS_CLOSED,
-    Reconnecting = NATS_CONN_STATUS_RECONNECTING,
-    DrainingSubs = NATS_CONN_STATUS_DRAINING_SUBS,
-    DrainingPubs = NATS_CONN_STATUS_DRAINING_PUBS
-};
-
-Q_ENUM_NS(ConnectionStatus)
-
 // need to throw it from QFuture; otherwise it would be derived from std::runtime_error
 // in fact, QException inherits from std::exception, although it's not documented
 class Exception : public QException {
@@ -73,6 +61,73 @@ private:
     const QByteArray errorText;
 };
 
+// =============================================================================
+// Data types  (analogous to nats.h types)
+// =============================================================================
+#pragma region Data types
+
+// natsConnStatus
+enum class ConnectionStatus {
+    Disconnected = NATS_CONN_STATUS_DISCONNECTED,
+    Connecting = NATS_CONN_STATUS_CONNECTING,
+    Connected = NATS_CONN_STATUS_CONNECTED,
+    Closed = NATS_CONN_STATUS_CLOSED,
+    Reconnecting = NATS_CONN_STATUS_RECONNECTING,
+    DrainingSubs = NATS_CONN_STATUS_DRAINING_SUBS,
+    DrainingPubs = NATS_CONN_STATUS_DRAINING_PUBS
+};
+Q_ENUM_NS(ConnectionStatus)
+
+struct JsOptions {
+    // QString prefix = "$JS.API"; don't think it's a good idea to change this?
+    QByteArray domain;
+    int64_t timeout = 5000;
+};
+
+struct JsPublishAck {
+    QByteArray stream;
+    uint64_t sequence = 0;
+    QByteArray domain;
+    bool duplicate = false;
+};
+
+struct JsPublishOptions {
+    int64_t timeout = -1;
+    QByteArray msgID;
+    QByteArray expectStream;
+    QByteArray expectLastMessageID;
+    uint64_t expectLastSequence = 0;
+    uint64_t expectLastSubjectSequence = 0;
+    bool expectNoMessage = false;
+};
+
+struct QTNATS_EXPORT Message {
+    Message() = default;
+
+    Message(QByteArray in_subject, const QByteArray& in_data) : subject(std::move(in_subject)), data(in_data) {}
+
+    explicit Message(natsMsg* cmsg) noexcept;
+
+    bool isIncoming() const { return bool(m_natsMsg); }
+
+    // JetStream acknowledgments
+    void ack();
+    void nack(int64_t delay = -1); // ms
+    void inProgress();
+    void terminate();
+
+    QByteArray subject;
+    QByteArray reply;
+    QByteArray data;
+    // NB! 1. headers are case-sensitive
+    // 2. cnats does NOT preserve the order of headers
+    MessageHeaders headers;
+
+private:
+    std::shared_ptr<natsMsg> m_natsMsg;
+};
+
+// natsOptions
 struct QTNATS_EXPORT Options {
     QList<QUrl> servers;
     QByteArray user;
@@ -103,43 +158,16 @@ struct QTNATS_EXPORT Options {
     QString caFile;   // CA certificate for server verification
 };
 
-struct QTNATS_EXPORT Message {
-    Message() = default;
+#pragma endregion
 
-    Message(QByteArray in_subject, const QByteArray& in_data) : subject(std::move(in_subject)), data(in_data) {}
-
-    explicit Message(natsMsg* cmsg) noexcept;
-
-    bool isIncoming() const { return bool(m_natsMsg); }
-
-    // JetStream acknowledgments
-    void ack();
-
-    void nack(int64_t delay = -1); // ms
-    void inProgress();
-
-    void terminate();
-
-
-    QByteArray subject;
-    QByteArray reply;
-    QByteArray data;
-    // NB! 1. headers are case-sensitive
-    // 2. cnats does NOT preserve the order of headers
-    MessageHeaders headers;
-
-private:
-    std::shared_ptr<natsMsg> m_natsMsg;
-};
+// =============================================================================
+// Classes
+// =============================================================================
+#pragma region Classes
 
 class Subscription;
 class JetStream;
-
-struct JsOptions {
-    // QString prefix = "$JS.API"; don't think it's a good idea to change this?
-    QByteArray domain;
-    int64_t timeout = 5000;
-};
+class PullSubscription;
 
 class QTNATS_EXPORT Client : public QObject {
     Q_OBJECT
@@ -222,25 +250,6 @@ private:
     friend class JetStream;
 };
 
-// ---------------------------- JET STREAM -------------------------------
-
-struct JsPublishOptions {
-    int64_t timeout = -1;
-    QByteArray msgID;
-    QByteArray expectStream;
-    QByteArray expectLastMessageID;
-    uint64_t expectLastSequence = 0;
-    uint64_t expectLastSubjectSequence = 0;
-    bool expectNoMessage = false;
-};
-
-struct JsPublishAck {
-    QByteArray stream;
-    uint64_t sequence  = 0;
-    QByteArray domain;
-    bool duplicate     = false;
-};
-
 class QTNATS_EXPORT PullSubscription : public QObject {
     Q_OBJECT
     Q_DISABLE_COPY(PullSubscription)
@@ -302,6 +311,9 @@ private:
 
     friend class Client;
 };
+
+#pragma endregion
+
 } // namespace QtNats
 
 Q_DECLARE_METATYPE(QtNats::Message)
