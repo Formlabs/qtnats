@@ -122,22 +122,23 @@ Client::Client(QObject* parent) : QObject(parent), semaphore(1) {
 Client::~Client() noexcept { close(); }
 
 void Client::connectToServer(const Options& opts) {
-    const NatsOptsPtr optsPtr = asC(opts);
-    natsOptions* const nats_opts = optsPtr.get();
+    convertAndHandle(opts, [&](const auto& c) {
+        natsOptions* const nats_opts = c.get();
 
-    // don't create a thread for each subscription, since we may have a lot of subscriptions
-    // number of threads in the pool is set by nats_SetMessageDeliveryPoolSize above
-    natsOptions_UseGlobalMessageDelivery(nats_opts, true);
+        // don't create a thread for each subscription, since we may have a lot of subscriptions
+        // number of threads in the pool is set by nats_SetMessageDeliveryPoolSize above
+        natsOptions_UseGlobalMessageDelivery(nats_opts, true);
 
-    natsOptions_SetErrorHandler(nats_opts, &errorHandler, this);
-    natsOptions_SetClosedCB(nats_opts, &closedConnectionHandler, this);
-    natsOptions_SetDisconnectedCB(nats_opts, &disconnectedHandler, this);
-    natsOptions_SetReconnectedCB(nats_opts, &reconnectedHandler, this);
+        natsOptions_SetErrorHandler(nats_opts, &errorHandler, this);
+        natsOptions_SetClosedCB(nats_opts, &closedConnectionHandler, this);
+        natsOptions_SetDisconnectedCB(nats_opts, &disconnectedHandler, this);
+        natsOptions_SetReconnectedCB(nats_opts, &reconnectedHandler, this);
 
-    Q_EMIT statusChanged(ConnectionStatus::Connecting);
-    checkError(natsConnection_Connect(&m_conn, nats_opts));
-    Q_EMIT statusChanged(ConnectionStatus::Connected);
-    // TODO handle reopening
+        Q_EMIT statusChanged(ConnectionStatus::Connecting);
+        checkError(natsConnection_Connect(&m_conn, nats_opts));
+        Q_EMIT statusChanged(ConnectionStatus::Connected);
+        // TODO handle reopening
+    });
 }
 
 void Client::connectToServer(const QUrl& address) {
@@ -171,15 +172,17 @@ void Client::close() noexcept {
 }
 
 void Client::publish(const Message& msg) {
-    const NatsMsgPtr p = asC(msg);
-    checkError(natsConnection_PublishMsg(m_conn, p.get()));
+    convertAndHandle(msg, nullptr, [&](const auto& c) {
+        checkError(natsConnection_PublishMsg(m_conn, c.get()));
+    });
 }
 
 Message Client::request(const Message& msg, int64_t timeout) {
-    natsMsg* replyMsg;
-    const NatsMsgPtr p = asC(msg);
-    checkError(natsConnection_RequestMsg(&replyMsg, m_conn, p.get(), timeout));
-    return fromC(NatsMsgPtr(replyMsg));
+    return convertAndHandle(msg, nullptr, [&](const auto& c) {
+        natsMsg* replyMsg;
+        checkError(natsConnection_RequestMsg(&replyMsg, m_conn, c.get(), timeout));
+        return fromC(NatsMsgPtr(replyMsg));
+    });
 }
 
 QFuture<Message> Client::asyncRequest(const Message& msg, int64_t timeout) {
@@ -196,8 +199,9 @@ QFuture<Message> Client::asyncRequest(const Message& msg, int64_t timeout) {
     try {
         checkError(natsSubscription_AutoUnsubscribe(subscription, 1));
         // can't do msg.reply = inbox; publish(msg); because "msg" is constant
-        const NatsMsgPtr p = asC(msg, inbox.constData());
-        checkError(natsConnection_PublishMsg(m_conn, p.get()));
+        convertAndHandle(msg, inbox.constData(), [&](const auto& p) {
+            checkError(natsConnection_PublishMsg(m_conn, p.get()));
+        });
     } catch (...) {
         // Destroy the subscription before the shared_ptr destroys the QFutureInterface,
         // otherwise the subscription callback would fire against freed memory.

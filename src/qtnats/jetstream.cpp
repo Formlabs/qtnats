@@ -154,14 +154,15 @@ PullSubscription* JetStream::pullSubscribe(
 }
 
 JsPublishAck JetStream::doPublish(const Message& msg, jsPubOptions* opts) {
-    auto jsErr = static_cast<jsErrCode>(0);
-    jsPubAck* ack = nullptr;
-    const NatsMsgPtr cnatsMsg = asC(msg);
+    return convertAndHandle(msg, nullptr, [&](const auto& p) {
+        auto jsErr = static_cast<jsErrCode>(0);
+        jsPubAck* ack = nullptr;
 
-    const natsStatus s = js_PublishMsg(&ack, m_jsCtx, cnatsMsg.get(), opts, &jsErr);
-    checkJsError(s, jsErr);
+        const natsStatus s = js_PublishMsg(&ack, m_jsCtx, p.get(), opts, &jsErr);
+        checkJsError(s, jsErr);
 
-    return fromC(JsPubAckPtr(ack));
+        return fromC(JsPubAckPtr(ack));
+    });
 }
 
 void JetStream::doAsyncPublish(const Message& msg, jsPubOptions* opts) {

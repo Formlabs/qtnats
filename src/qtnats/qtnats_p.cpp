@@ -25,79 +25,9 @@ void subscriptionCallback(natsConnection* /*nc*/, natsSubscription* /*sub*/, nat
     Q_EMIT sub->received(m);
 }
 
-NatsMsgPtr asC(const Message& msg, const char* reply) {
-    natsMsg* cnatsMsg;
-
-    const char* realReply = nullptr; // in asyncRequest I need to provide my own reply
-    if (reply) {
-        realReply = reply;
-    } else if (msg.reply.size()) {
-        realReply = msg.reply.constData();
-    }
-
-    checkError(natsMsg_Create(&cnatsMsg, msg.subject.constData(), realReply, msg.data.constData(), msg.data.size()));
-
-    NatsMsgPtr msgPtr(cnatsMsg);
-
-    auto i = msg.headers.constBegin();
-    while (i != msg.headers.constEnd()) {
-        checkError(natsMsgHeader_Add(cnatsMsg, i.key().constData(), i.value().constData()));
-        ++i;
-    }
-    return msgPtr;
-}
-
-NatsOptsPtr asC(const Options& opts) {
-    natsOptions* o;
-    natsOptions_Create(&o);
-    NatsOptsPtr ptr(o);
-
-    if (!opts.servers.empty()) {
-        QList<QByteArray> l;
-        QVector<const char*> ptrs;
-        for (const auto& url : opts.servers) {
-            // TODO check for invalid URL
-            l.append(url.toEncoded());
-            ptrs.append(l.last().constData());
-        }
-        checkError(natsOptions_SetServers(o, ptrs.data(), static_cast<int>(ptrs.size())));
-    }
-    checkError(natsOptions_SetUserInfo(o, opts.user.constData(), opts.password.constData()));
-    checkError(natsOptions_SetToken(o, opts.token.constData()));
-    checkError(natsOptions_SetNoRandomize(o, !opts.randomize)); // NB! reverted flag
-    checkError(natsOptions_SetTimeout(o, opts.timeout));
-    checkError(natsOptions_SetName(o, opts.name.constData()));
-
-    // TLS/mTLS configuration
-    if (opts.secure) {
-        checkError(natsOptions_SetSecure(o, true));
-    }
-    if (!opts.caFile.isEmpty()) {
-        checkError(natsOptions_SetCATrustedCertificates(o, opts.caFile.toUtf8().constData()));
-    }
-    if (!opts.certFile.isEmpty() && !opts.keyFile.isEmpty()) {
-        checkError(
-            natsOptions_LoadCertificatesChain(o, opts.certFile.toUtf8().constData(), opts.keyFile.toUtf8().constData())
-        );
-    }
-
-    checkError(natsOptions_SetVerbose(o, opts.verbose));
-    checkError(natsOptions_SetPedantic(o, opts.pedantic));
-    checkError(natsOptions_SetPingInterval(o, opts.pingInterval));
-    checkError(natsOptions_SetMaxPingsOut(o, opts.maxPingsOut));
-    checkError(natsOptions_SetAllowReconnect(o, opts.allowReconnect));
-    checkError(natsOptions_SetMaxReconnect(o, opts.maxReconnect));
-    checkError(natsOptions_SetReconnectWait(o, opts.reconnectWait));
-    checkError(natsOptions_SetReconnectBufSize(o, opts.reconnectBufferSize));
-    checkError(natsOptions_SetMaxPendingMsgs(o, opts.maxPendingMessages));
-    checkError(natsOptions_SetNoEcho(o, !opts.echo)); // NB! reverted flag
-
-    return ptr;
-}
-
 Message fromC(NatsMsgPtr msg) { return Message(msg.release()); }
 
-JsPublishAck fromC(JsPubAckPtr ack) {
+JsPublishAck fromC(const JsPubAckPtr& ack) {
     JsPublishAck result;
     result.stream = QByteArray(ack->Stream);
     result.sequence = ack->Sequence;
