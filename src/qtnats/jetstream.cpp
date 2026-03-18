@@ -26,11 +26,11 @@ static void jsPubErrHandler(jsCtx*, jsPubAckErr* pae, void* closure) {
 
 JetStream* Client::jetStream(const JsOptions& options) {
     auto* const js = new JetStream(this);
-    jsOptions jsOpts = toC(options);
-    jsOpts.PublishAsync.ErrHandler = &jsPubErrHandler;
-    jsOpts.PublishAsync.ErrHandlerClosure = js;
-
-    checkError(natsConnection_JetStream(&js->m_jsCtx, m_conn, &jsOpts));
+    convertAndHandle(options, [&](jsOptions& jsOpts) {
+        jsOpts.PublishAsync.ErrHandler = &jsPubErrHandler;
+        jsOpts.PublishAsync.ErrHandlerClosure = js;
+        checkError(natsConnection_JetStream(&js->m_jsCtx, m_conn, &jsOpts));
+    });
     return js;
 }
 
@@ -75,8 +75,7 @@ JetStream::~JetStream() noexcept { jsCtx_Destroy(m_jsCtx); }
 
 
 JsPublishAck JetStream::publish(const Message& msg, const JsPublishOptions& opts) {
-    jsPubOptions jsOpts = toC(opts);
-    return doPublish(msg, &jsOpts);
+    return convertAndHandle(opts, [&](jsPubOptions& jsOpts) { return doPublish(msg, &jsOpts); });
 }
 
 JsPublishAck JetStream::publish(const Message& msg, int64_t timeout) {
@@ -89,8 +88,7 @@ JsPublishAck JetStream::publish(const Message& msg, int64_t timeout) {
 }
 
 void JetStream::asyncPublish(const Message& msg, const JsPublishOptions& opts) {
-    jsPubOptions jsOpts = toC(opts);
-    doAsyncPublish(msg, &jsOpts);
+    convertAndHandle(opts, [&](jsPubOptions& jsOpts) { doAsyncPublish(msg, &jsOpts); });
 }
 
 void JetStream::asyncPublish(const Message& msg, int64_t timeout) {
@@ -124,14 +122,14 @@ void JetStream::waitForPublishCompleted(int64_t timeout) {
 
 Subscription* JetStream::subscribe(const QByteArray& subject, const QByteArray& stream, const QByteArray& consumer) {
     // manualAck=true: avoid _autoAckCB in cnats internals, because it takes over ownership of delivered messages
-    const JsSubOptions qtOpts{stream, consumer};
-    jsSubOptions subOpts = toC(qtOpts, /*manualAck=*/true);
     auto sub = std::unique_ptr<Subscription>(new Subscription(nullptr));
-    jsErrCode jsErr;
-    const natsStatus s = js_Subscribe(
-        &sub->m_sub, m_jsCtx, subject.constData(), &subscriptionCallback, sub.get(), nullptr, &subOpts, &jsErr
-    );
-    checkJsError(s, jsErr);
+    jsErrCode jsErr = {};
+    convertAndHandle(JsSubOptions{stream, consumer}, /*manualAck=*/true, [&](jsSubOptions& subOpts) {
+        const natsStatus s = js_Subscribe(
+            &sub->m_sub, m_jsCtx, subject.constData(), &subscriptionCallback, sub.get(), nullptr, &subOpts, &jsErr
+        );
+        checkJsError(s, jsErr);
+    });
     sub->setParent(this);
     return sub.release();
 }
@@ -142,13 +140,12 @@ PullSubscription* JetStream::pullSubscribe(
     const QByteArray& consumer
 ) {
     auto sub = std::unique_ptr<PullSubscription>(new PullSubscription(nullptr));
-    jsErrCode jsErr;
-    const JsSubOptions qtOpts{stream, consumer};
-    jsSubOptions subOpts = toC(qtOpts);
-
-    const natsStatus s =
-        js_PullSubscribe(&sub->m_sub, m_jsCtx, subject.constData(), consumer.constData(), nullptr, &subOpts, &jsErr);
-    checkJsError(s, jsErr);
+    jsErrCode jsErr = {};
+    convertAndHandle(JsSubOptions{stream, consumer}, /*manualAck=*/false, [&](jsSubOptions& subOpts) {
+        const natsStatus s =
+            js_PullSubscribe(&sub->m_sub, m_jsCtx, subject.constData(), consumer.constData(), nullptr, &subOpts, &jsErr);
+        checkJsError(s, jsErr);
+    });
     sub->setParent(this);
     return sub.release();
 }

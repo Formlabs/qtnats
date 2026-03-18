@@ -119,14 +119,158 @@ auto convertAndHandle(const Options& opts, F&& handler) -> std::invoke_result_t<
     return handler(ptr);
 }
 
-jsConsumerConfig toC(const JsConsumerConfig& config);
-jsOptions toC(const JsOptions& opts);
-jsOptionsPublishAsync toC(const JsOptionsPublishAsync& opts);
-jsOptionsPullSubscribeAsync toC(const JsOptionsPullSubscribeAsync& opts);
-jsOptionsStream toC(const JsOptionsStream& opts);
-jsOptionsStreamInfo toC(const JsOptionsStreamInfo& opts);
-jsOptionsStreamPurge toC(const JsOptionsStreamPurge& opts);
-jsPubOptions toC(const JsPublishOptions& opts);
-jsSubOptions toC(const JsSubOptions& opts, bool manualAck = false);
+template <typename F>
+auto convertAndHandle(const JsConsumerConfig& c, F&& handler) -> std::invoke_result_t<F, jsConsumerConfig&> {
+    // No jsConsumerConfig_Init() — default values are already set in JsConsumerConfig
+    jsConsumerConfig o = {};
+    o.Name = c.name.isEmpty() ? nullptr : c.name.constData();
+    o.Durable = c.durable.isEmpty() ? nullptr : c.durable.constData();
+    o.Description = c.description.isEmpty() ? nullptr : c.description.constData();
+    o.DeliverPolicy =
+        c.deliverPolicy ? static_cast<jsDeliverPolicy>(*c.deliverPolicy) : static_cast<jsDeliverPolicy>(-1);
+    o.OptStartSeq = c.optStartSeq;
+    o.OptStartTime = c.optStartTime;
+    o.AckPolicy = c.ackPolicy ? static_cast<jsAckPolicy>(*c.ackPolicy) : static_cast<jsAckPolicy>(-1);
+    o.AckWait = c.ackWait;
+    o.MaxDeliver = c.maxDeliver;
+    o.BackOff = c.backOff.isEmpty() ? nullptr : const_cast<int64_t*>(c.backOff.constData());
+    o.BackOffLen = static_cast<int>(c.backOff.size());
+    o.FilterSubject = c.filterSubject.isEmpty() ? nullptr : c.filterSubject.constData();
+    o.ReplayPolicy = c.replayPolicy ? static_cast<jsReplayPolicy>(*c.replayPolicy) : static_cast<jsReplayPolicy>(-1);
+    o.RateLimit = c.rateLimit;
+    o.SampleFrequency = c.sampleFrequency.isEmpty() ? nullptr : c.sampleFrequency.constData();
+    o.MaxWaiting = c.maxWaiting;
+    o.MaxAckPending = c.maxAckPending;
+    o.FlowControl = c.flowControl;
+    o.Heartbeat = c.heartbeat;
+    o.HeadersOnly = c.headersOnly;
+    o.MaxRequestBatch = c.maxRequestBatch;
+    o.MaxRequestExpires = c.maxRequestExpires;
+    o.MaxRequestMaxBytes = c.maxRequestMaxBytes;
+    o.DeliverSubject = c.deliverSubject.isEmpty() ? nullptr : c.deliverSubject.constData();
+    o.DeliverGroup = c.deliverGroup.isEmpty() ? nullptr : c.deliverGroup.constData();
+    o.InactiveThreshold = c.inactiveThreshold;
+    o.Replicas = c.replicas;
+    o.MemoryStorage = c.memoryStorage;
+    // FilterSubjects and Metadata require intermediate pointer arrays — TODO
+    o.FilterSubjects = nullptr;
+    o.FilterSubjectsLen = 0;
+    o.Metadata = {nullptr, 0};
+    o.PauseUntil = c.pauseUntil;
+    return handler(o);
+}
+
+template <typename F>
+auto convertAndHandle(const JsOptionsPublishAsync& opts, F&& handler) -> std::invoke_result_t<F, jsOptionsPublishAsync&> {
+    // No jsOptionsPublishAsync_Init() — default values are already set in JsOptionsPublishAsync
+    jsOptionsPublishAsync o = {};
+    o.MaxPending = opts.maxPending;
+    o.AckHandler = nullptr;
+    o.AckHandlerClosure = nullptr;
+    o.ErrHandler = nullptr;
+    o.ErrHandlerClosure = nullptr;
+    o.StallWait = opts.stallWait;
+    return handler(o);
+}
+
+template <typename F>
+auto convertAndHandle(const JsOptionsPullSubscribeAsync& opts, F&& handler)
+    -> std::invoke_result_t<F, jsOptionsPullSubscribeAsync&> {
+    // No jsOptionsPullSubscribeAsync_Init() — default values are already set in JsOptionsPullSubscribeAsync
+    jsOptionsPullSubscribeAsync o = {};
+    o.Timeout = opts.timeout;
+    o.MaxMessages = opts.maxMessages;
+    o.MaxBytes = opts.maxBytes;
+    o.NoWait = opts.noWait;
+    o.CompleteHandler = nullptr;
+    o.CompleteHandlerClosure = nullptr;
+    o.Heartbeat = opts.heartbeat;
+    o.FetchSize = opts.fetchSize;
+    o.KeepAhead = opts.keepAhead;
+    o.NextHandler = nullptr;
+    o.NextHandlerClosure = nullptr;
+    return handler(o);
+}
+
+template <typename F>
+auto convertAndHandle(const JsOptionsStreamInfo& opts, F&& handler) -> std::invoke_result_t<F, jsOptionsStreamInfo&> {
+    // No jsOptionsStreamInfo_Init() — default values are already set in JsOptionsStreamInfo
+    jsOptionsStreamInfo o = {};
+    o.DeletedDetails = opts.deletedDetails;
+    o.SubjectsFilter = opts.subjectsFilter.constData();
+    return handler(o);
+}
+
+template <typename F>
+auto convertAndHandle(const JsOptionsStreamPurge& opts, F&& handler)
+    -> std::invoke_result_t<F, jsOptionsStreamPurge&> {
+    // No jsOptionsStreamPurge_Init() — default values are already set in JsOptionsStreamPurge
+    jsOptionsStreamPurge o = {};
+    o.Subject = opts.subject.constData();
+    o.Sequence = opts.sequence;
+    o.Keep = opts.keep;
+    return handler(o);
+}
+
+template <typename F>
+auto convertAndHandle(const JsPublishOptions& opts, F&& handler) -> std::invoke_result_t<F, jsPubOptions&> {
+    // No jsPubOptions_Init() — default values are already set in JsPublishOptions
+    jsPubOptions o = {};
+    o.MaxWait = opts.timeout;
+    o.MsgId = opts.msgID.isEmpty() ? nullptr : opts.msgID.constData();
+    o.ExpectStream = opts.expectStream.isEmpty() ? nullptr : opts.expectStream.constData();
+    o.ExpectLastMsgId = opts.expectLastMessageID.isEmpty() ? nullptr : opts.expectLastMessageID.constData();
+    o.ExpectLastSeq = opts.expectLastSequence;
+    o.ExpectLastSubjectSeq = opts.expectLastSubjectSequence;
+    o.ExpectNoMessage = opts.expectNoMessage;
+    return handler(o);
+}
+
+template <typename F>
+auto convertAndHandle(const JsOptionsStream& opts, F&& handler) -> std::invoke_result_t<F, jsOptionsStream&> {
+    // No jsOptionsStream_Init() — default values are already set in JsOptionsStream
+    return convertAndHandle(opts.purge, [&](const jsOptionsStreamPurge& purge) {
+        return convertAndHandle(opts.info, [&](const jsOptionsStreamInfo& info) {
+            jsOptionsStream o = {};
+            o.Purge = purge;
+            o.Info = info;
+            return handler(o);
+        });
+    });
+}
+
+template <typename F>
+auto convertAndHandle(const JsOptions& opts, F&& handler) -> std::invoke_result_t<F, jsOptions&> {
+    // No jsOptions_Init() — default values are already set in JsOptions
+    return convertAndHandle(opts.publishAsync, [&](const jsOptionsPublishAsync& pa) {
+        return convertAndHandle(opts.pullSubscribeAsync, [&](const jsOptionsPullSubscribeAsync& psa) {
+            return convertAndHandle(opts.stream, [&](const jsOptionsStream& stream) {
+                jsOptions o = {};
+                o.Prefix = opts.prefix.constData();
+                o.Domain = opts.domain.constData();
+                o.Wait = opts.timeout;
+                o.PublishAsync = pa;
+                o.PullSubscribeAsync = psa;
+                o.Stream = stream;
+                return handler(o);
+            });
+        });
+    });
+}
+
+template <typename F>
+auto convertAndHandle(const JsSubOptions& opts, bool manualAck, F&& handler) -> std::invoke_result_t<F, jsSubOptions&> {
+    // No jsSubOptions_Init() — default values are already set in JsSubOptions
+    return convertAndHandle(opts.config, [&](const jsConsumerConfig& config) {
+        jsSubOptions o = {};
+        o.Stream = opts.stream.constData();
+        o.Consumer = opts.consumer.constData();
+        o.Queue = opts.queue.isEmpty() ? nullptr : opts.queue.constData();
+        o.ManualAck = manualAck;
+        o.Config = config;
+        o.Ordered = opts.ordered;
+        return handler(o);
+    });
+}
 
 } // namespace QtNats
