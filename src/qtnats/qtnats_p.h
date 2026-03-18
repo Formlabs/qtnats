@@ -38,13 +38,19 @@ using NatsOptsPtr = std::unique_ptr<natsOptions, NatsOptsDeleter>;
 NatsMsgPtr asC(const Message& msg, const char* reply = nullptr);
 NatsOptsPtr asC(const Options& opts);
 
-JsPublishAck fromC(JsPubAckPtr ack);
+JsPublishAck fromC(const JsPubAckPtr& ack);
 Message fromC(NatsMsgPtr msg);
 
 // Note that these are NON-OWNING: Because the C types contain pointers to the data, the QtNats types must outlive the
 // C types. Otherwise, the C types will have dangling pointers.
+jsConsumerConfig toC(const JsConsumerConfig& config);
 jsOptions toC(const JsOptions& opts);
+jsOptionsPublishAsync toC(const JsOptionsPublishAsync& opts);
+jsOptionsPullSubscribeAsync toC(const JsOptionsPullSubscribeAsync& opts);
+jsOptionsStream toC(const JsOptionsStream& opts);
+jsOptionsStreamInfo toC(const JsOptionsStreamInfo& opts);
+jsOptionsStreamPurge toC(const JsOptionsStreamPurge& opts);
 jsPubOptions toC(const JsPublishOptions& opts);
-jsSubOptions toC(const QByteArray& stream, const QByteArray& consumer, bool manualAck = false);
+jsSubOptions toC(const JsSubOptions& opts, bool manualAck = false);
 
 } // namespace QtNats

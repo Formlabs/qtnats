@@ -124,7 +124,8 @@ void JetStream::waitForPublishCompleted(int64_t timeout) {
 
 Subscription* JetStream::subscribe(const QByteArray& subject, const QByteArray& stream, const QByteArray& consumer) {
     // manualAck=true: avoid _autoAckCB in cnats internals, because it takes over ownership of delivered messages
-    jsSubOptions subOpts = toC(stream, consumer, /*manualAck=*/true);
+    const JsSubOptions qtOpts{stream, consumer};
+    jsSubOptions subOpts = toC(qtOpts, /*manualAck=*/true);
     auto sub = std::unique_ptr<Subscription>(new Subscription(nullptr));
     jsErrCode jsErr;
     const natsStatus s = js_Subscribe(
@@ -142,7 +143,8 @@ PullSubscription* JetStream::pullSubscribe(
 ) {
     auto sub = std::unique_ptr<PullSubscription>(new PullSubscription(nullptr));
     jsErrCode jsErr;
-    jsSubOptions subOpts = toC(stream, consumer);
+    const JsSubOptions qtOpts{stream, consumer};
+    jsSubOptions subOpts = toC(qtOpts);
 
     const natsStatus s =
         js_PullSubscribe(&sub->m_sub, m_jsCtx, subject.constData(), consumer.constData(), nullptr, &subOpts, &jsErr);
