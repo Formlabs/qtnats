@@ -176,14 +176,14 @@ void Client::publish(const Message& msg) {
     checkError(natsConnection_PublishMsg(m_conn, p.get()));
 }
 
-Message Client::request(const Message& msg, qint64 timeout) {
+Message Client::request(const Message& msg, int64_t timeout) {
     natsMsg* replyMsg;
     const NatsMsgPtr p = asC(msg);
     checkError(natsConnection_RequestMsg(&replyMsg, m_conn, p.get(), timeout));
     return fromC(NatsMsgPtr(replyMsg));
 }
 
-QFuture<Message> Client::asyncRequest(const Message& msg, qint64 timeout) {
+QFuture<Message> Client::asyncRequest(const Message& msg, int64_t timeout) {
     // QFutureInterface is undocumented; Qt6 provides QPromise instead
     // based on https://stackoverflow.com/questions/59197694/qt-how-to-create-a-qfuture-from-a-thread
     auto future_iface = std::make_shared<QFutureInterface<Message> >();
@@ -242,7 +242,7 @@ Subscription* Client::subscribe(const QByteArray& subject, const QByteArray& que
     return sub.release();
 }
 
-bool Client::ping(qint64 timeout) noexcept {
+bool Client::ping(int64_t timeout) noexcept {
     const natsStatus s = natsConnection_FlushTimeout(m_conn, timeout);
     return (s == NATS_OK);
 }

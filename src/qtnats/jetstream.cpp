@@ -40,7 +40,7 @@ void Message::ack() {
     checkJsError(s, jsErr);
 }
 
-void Message::nack(qint64 delay) {
+void Message::nack(int64_t delay) {
     natsStatus s;
     if (delay == -1) {
         s = natsMsg_Nak(m_natsMsg.get(), nullptr);
@@ -56,7 +56,7 @@ void Message::terminate() { checkError(natsMsg_Term(m_natsMsg.get(), nullptr)); 
 
 PullSubscription::~PullSubscription() noexcept { natsSubscription_Destroy(m_sub); }
 
-QList<Message> PullSubscription::fetch(int batch, qint64 timeout) {
+QList<Message> PullSubscription::fetch(int batch, int64_t timeout) {
     // see also https://github.com/nats-io/nats.c/issues/545
     natsMsgList list{nullptr, 0};
     jsErrCode jsErr;
@@ -79,7 +79,7 @@ JsPublishAck JetStream::publish(const Message& msg, const JsPublishOptions& opts
     return doPublish(msg, &jsOpts);
 }
 
-JsPublishAck JetStream::publish(const Message& msg, qint64 timeout) {
+JsPublishAck JetStream::publish(const Message& msg, int64_t timeout) {
     jsPubOptions jsOpts;
     jsPubOptions_Init(&jsOpts);
     if (timeout != -1) {
@@ -93,7 +93,7 @@ void JetStream::asyncPublish(const Message& msg, const JsPublishOptions& opts) {
     doAsyncPublish(msg, &jsOpts);
 }
 
-void JetStream::asyncPublish(const Message& msg, qint64 timeout) {
+void JetStream::asyncPublish(const Message& msg, int64_t timeout) {
     jsPubOptions jsOpts;
     jsPubOptions_Init(&jsOpts);
     if (timeout != -1) {
@@ -102,7 +102,7 @@ void JetStream::asyncPublish(const Message& msg, qint64 timeout) {
     doAsyncPublish(msg, &jsOpts);
 }
 
-void JetStream::waitForPublishCompleted(qint64 timeout) {
+void JetStream::waitForPublishCompleted(int64_t timeout) {
     // TODO use QtConcurrent::run and return QFuture?
     natsStatus s = NATS_OK;
     if (timeout != -1) {

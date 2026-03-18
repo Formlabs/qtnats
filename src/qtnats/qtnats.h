@@ -9,6 +9,7 @@ governing permissions and  limitations under the License.
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -78,17 +79,17 @@ struct QTNATS_EXPORT Options {
     QByteArray password;
     QByteArray token;
     bool randomize = true; // NB! reverted option
-    qint64 timeout;
+    int64_t timeout;
     QByteArray name;
     bool secure = false;
     bool verbose = false;
     bool pedantic = false;
-    qint64 pingInterval;
+    int64_t pingInterval;
     int maxPingsOut;
     int ioBufferSize;
     bool allowReconnect = true;
     int maxReconnect;
-    qint64 reconnectWait;
+    int64_t reconnectWait;
     int reconnectBufferSize;
     int maxPendingMessages;
     bool echo = true; // NB! reverted option
@@ -113,7 +114,7 @@ struct QTNATS_EXPORT Message {
     // JetStream acknowledgments
     void ack();
 
-    void nack(qint64 delay = -1); // ms
+    void nack(int64_t delay = -1); // ms
     void inProgress();
 
     void terminate();
@@ -136,7 +137,7 @@ class JetStream;
 struct JsOptions {
     // QString prefix = "$JS.API"; don't think it's a good idea to change this?
     QByteArray domain;
-    qint64 timeout = 5000;
+    int64_t timeout = 5000;
 };
 
 class QTNATS_EXPORT Client : public QObject {
@@ -160,15 +161,15 @@ public:
 
     void publish(const Message& msg);
 
-    Message request(const Message& msg, qint64 timeout = 2000);
+    Message request(const Message& msg, int64_t timeout = 2000);
 
-    QFuture<Message> asyncRequest(const Message& msg, qint64 timeout = 2000);
+    QFuture<Message> asyncRequest(const Message& msg, int64_t timeout = 2000);
 
     Subscription* subscribe(const QByteArray& subject);
 
     Subscription* subscribe(const QByteArray& subject, const QByteArray& queueGroup);
 
-    bool ping(qint64 timeout = 10000) noexcept; // ms
+    bool ping(int64_t timeout = 10000) noexcept; // ms
 
     QUrl currentServer() const;
 
@@ -223,18 +224,18 @@ private:
 // ---------------------------- JET STREAM -------------------------------
 
 struct JsPublishOptions {
-    qint64 timeout = -1;
+    int64_t timeout = -1;
     QByteArray msgID;
     QByteArray expectStream;
     QByteArray expectLastMessageID;
-    quint64 expectLastSequence = 0;
-    quint64 expectLastSubjectSequence = 0;
+    uint64_t expectLastSequence = 0;
+    uint64_t expectLastSubjectSequence = 0;
     bool expectNoMessage = false;
 };
 
 struct JsPublishAck {
     QByteArray stream;
-    quint64 sequence;
+    uint64_t sequence;
     QByteArray domain;
     bool duplicate;
 };
@@ -250,7 +251,7 @@ public:
 
     PullSubscription& operator=(PullSubscription&&) = delete;
 
-    QList<Message> fetch(int batch = 1, qint64 timeout = 5000);
+    QList<Message> fetch(int batch = 1, int64_t timeout = 5000);
 
 private:
     PullSubscription(QObject* parent) : QObject(parent) {}
@@ -272,13 +273,13 @@ public:
 
     JsPublishAck publish(const Message& msg, const JsPublishOptions& opts);
 
-    JsPublishAck publish(const Message& msg, qint64 timeout = -1);
+    JsPublishAck publish(const Message& msg, int64_t timeout = -1);
 
     void asyncPublish(const Message& msg, const JsPublishOptions& opts);
 
-    void asyncPublish(const Message& msg, qint64 timeout = -1);
+    void asyncPublish(const Message& msg, int64_t timeout = -1);
 
-    void waitForPublishCompleted(qint64 timeout = -1);
+    void waitForPublishCompleted(int64_t timeout = -1);
 
     Subscription* subscribe(const QByteArray& subject, const QByteArray& stream, const QByteArray& consumer);
 
