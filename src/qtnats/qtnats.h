@@ -78,28 +78,29 @@ struct QTNATS_EXPORT Options {
     QByteArray user;
     QByteArray password;
     QByteArray token;
-    bool randomize = true; // NB! reverted option
-    int64_t timeout;
     QByteArray name;
     bool secure = false;
     bool verbose = false;
     bool pedantic = false;
-    int64_t pingInterval;
-    int maxPingsOut;
-    int ioBufferSize;
     bool allowReconnect = true;
-    int maxReconnect;
-    int64_t reconnectWait;
-    int reconnectBufferSize;
-    int maxPendingMessages;
-    bool echo = true; // NB! reverted option
+    bool randomize = true; // NB! reverted option
+    bool echo = true;      // NB! reverted option
+
+    // Defaults mirror the NATS_OPTS_DEFAULT_* constants from cnats's private opts.h,
+    // hardcoded here to avoid depending on that internal header.
+    int64_t timeout = 2000;                    // NATS_OPTS_DEFAULT_TIMEOUT
+    int64_t pingInterval = 120000;             // NATS_OPTS_DEFAULT_PING_INTERVAL
+    int maxPingsOut = 2;                       // NATS_OPTS_DEFAULT_MAX_PING_OUT
+    int ioBufferSize = 32768;                  // NATS_OPTS_DEFAULT_IO_BUF_SIZE
+    int maxReconnect = 60;                     // NATS_OPTS_DEFAULT_MAX_RECONNECT
+    int64_t reconnectWait = 2000;              // NATS_OPTS_DEFAULT_RECONNECT_WAIT
+    int reconnectBufferSize = 8 * 1024 * 1024; // NATS_OPTS_DEFAULT_RECONNECT_BUF_SIZE
+    int maxPendingMessages = 65536;            // NATS_OPTS_DEFAULT_MAX_PENDING_MSGS
 
     // mTLS options
     QString certFile; // Client certificate file path
     QString keyFile;  // Client private key file path
     QString caFile;   // CA certificate for server verification
-
-    Options();
 };
 
 struct QTNATS_EXPORT Message {
@@ -235,9 +236,9 @@ struct JsPublishOptions {
 
 struct JsPublishAck {
     QByteArray stream;
-    uint64_t sequence;
+    uint64_t sequence  = 0;
     QByteArray domain;
-    bool duplicate;
+    bool duplicate     = false;
 };
 
 class QTNATS_EXPORT PullSubscription : public QObject {

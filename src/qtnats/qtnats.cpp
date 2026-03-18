@@ -24,19 +24,6 @@ static QString getNatsErrorText(natsStatus status) {
     return QString::fromUtf8(natsStatus_GetText(status));
 }
 
-Options::Options() {
-    // These defaults mirror the cnats opts.h constants.
-    // We hardcode them to avoid depending on the private cnats header.
-    timeout = 2000;                        // NATS_OPTS_DEFAULT_TIMEOUT (ms)
-    pingInterval = 120000;                 // NATS_OPTS_DEFAULT_PING_INTERVAL (ms)
-    maxPingsOut = 2;                       // NATS_OPTS_DEFAULT_MAX_PING_OUT
-    ioBufferSize = 32768;                  // NATS_OPTS_DEFAULT_IO_BUF_SIZE
-    maxReconnect = 60;                     // NATS_OPTS_DEFAULT_MAX_RECONNECT
-    reconnectWait = 2000;                  // NATS_OPTS_DEFAULT_RECONNECT_WAIT (ms)
-    reconnectBufferSize = 8 * 1024 * 1024; // NATS_OPTS_DEFAULT_RECONNECT_BUF_SIZE
-    maxPendingMessages = 65536;            // NATS_OPTS_DEFAULT_MAX_PENDING_MSGS
-}
-
 // need to pass it through queued signal-slot connections
 static const int messageTypeId = qRegisterMetaType<Message>();
 
