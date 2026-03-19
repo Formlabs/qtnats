@@ -86,26 +86,8 @@ JsPublishAck JetStream::publish(const Message& msg, const JsPublishOptions& opts
     return convertAndHandle(opts, [&](jsPubOptions& jsOpts) { return doPublish(msg, &jsOpts); });
 }
 
-JsPublishAck JetStream::publish(const Message& msg, int64_t timeout) {
-    jsPubOptions jsOpts;
-    jsPubOptions_Init(&jsOpts);
-    if (timeout != -1) {
-        jsOpts.MaxWait = timeout;
-    }
-    return doPublish(msg, &jsOpts);
-}
-
 void JetStream::asyncPublish(const Message& msg, const JsPublishOptions& opts) {
     convertAndHandle(opts, [&](jsPubOptions& jsOpts) { doAsyncPublish(msg, &jsOpts); });
-}
-
-void JetStream::asyncPublish(const Message& msg, int64_t timeout) {
-    jsPubOptions jsOpts;
-    jsPubOptions_Init(&jsOpts);
-    if (timeout != -1) {
-        jsOpts.MaxWait = timeout;
-    }
-    doAsyncPublish(msg, &jsOpts);
 }
 
 void JetStream::waitForPublishCompleted(int64_t timeout) {

@@ -415,11 +415,7 @@ public:
 
     JsPublishAck publish(const Message& msg, const JsPublishOptions& opts);
 
-    JsPublishAck publish(const Message& msg, int64_t timeout = -1);
-
     void asyncPublish(const Message& msg, const JsPublishOptions& opts);
-
-    void asyncPublish(const Message& msg, int64_t timeout = -1);
 
     void waitForPublishCompleted(int64_t timeout = -1);
 

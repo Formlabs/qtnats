@@ -89,12 +89,12 @@ void JetStreamTestCase::publish() {
             cout << "JS error: " << qPrintable(text) << endl;
         });
 
-        auto ack = js->publish(Message("test.1", "HI"));
+        auto ack = js->publish(Message("test.1", "HI"), {});
 
         QCOMPARE(ack.stream, "MY_STREAM");
 
         for (int i = 0; i < 5; i++) {
-            js->asyncPublish(Message("test.1", "HI"), 1000);
+            js->asyncPublish(Message("test.1", "HI"), {.timeout = 1000});
         }
         js->waitForPublishCompleted();
     } catch (const QException &e) {
