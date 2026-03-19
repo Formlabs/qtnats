@@ -43,6 +43,11 @@ struct StringArena {
         data.append(s.toUtf8());
         return data.last().constData();
     }
+    const char* add(const std::optional<QString>& s) {
+        if (!s.has_value())
+            return nullptr;
+        return add(*s);
+    }
 };
 
 // We wrap raw pointers in unique_ptr with struct deleters to ensure proper cleanup
@@ -292,7 +297,7 @@ auto convertAndHandle(const JsSubOptions& opts, bool manualAck, F&& handler) -> 
         jsSubOptions o = {};
         o.Stream = a.add(opts.stream);
         o.Consumer = a.add(opts.consumer);
-        o.Queue = opts.queue.isEmpty() ? nullptr : a.add(opts.queue);
+        o.Queue = a.add(opts.queue);
         o.ManualAck = manualAck;
         o.Config = config;
         o.Ordered = opts.ordered;

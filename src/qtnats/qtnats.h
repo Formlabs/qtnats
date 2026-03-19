@@ -110,9 +110,9 @@ enum class JsReplayPolicy {
 Q_ENUM_NS(JsReplayPolicy)
 
 struct JsConsumerConfig {
-    QString name;
-    QString durable;
-    QString description;
+    std::optional<QString> name;
+    std::optional<QString> durable;
+    std::optional<QString> description;
 
     // nullopt = leave at existing consumer's value (for jsSubOptions bind); 0 = DeliverAll / AckExplicit /
     // ReplayInstant
@@ -127,9 +127,9 @@ struct JsConsumerConfig {
     int64_t maxDeliver = 0; ///< Maximum number of delivery attempts
     QList<int64_t> backOff; ///< Redelivery intervals, nanoseconds
 
-    QString filterSubject;   ///< Subject filter for this consumer
+    std::optional<QString> filterSubject;   ///< Subject filter for this consumer
     uint64_t rateLimit = 0;      ///< Rate limit in bits per second
-    QString sampleFrequency; ///< Percentage of messages to sample for observability
+    std::optional<QString> sampleFrequency; ///< Percentage of messages to sample for observability
 
     int64_t maxWaiting = 0;    ///< Maximum number of outstanding pull requests
     int64_t maxAckPending = 0; ///< Maximum number of unacknowledged messages
@@ -144,8 +144,8 @@ struct JsConsumerConfig {
     int64_t maxRequestMaxBytes = 0; ///< Maximum pull request byte limit
 
     // Push-based options
-    QString deliverSubject;
-    QString deliverGroup;
+    std::optional<QString> deliverSubject;
+    std::optional<QString> deliverGroup;
 
     int64_t inactiveThreshold = 0; ///< Ephemeral consumer inactivity threshold, nanoseconds
     int64_t replicas = 0;
@@ -178,14 +178,14 @@ struct JsOptionsPullSubscribeAsync {
 };
 
 struct JsOptionsStreamInfo {
-    bool deletedDetails = false; ///< Include list of deleted message sequences
-    QString subjectsFilter;  ///< Filter subjects returned in stream state
+    bool deletedDetails = false;              ///< Include list of deleted message sequences
+    std::optional<QString> subjectsFilter;    ///< Filter subjects returned in stream state
 };
 
 struct JsOptionsStreamPurge {
-    QString subject;   ///< Subject to match against messages for the purge command
-    uint64_t sequence = 0; ///< Purge up to but not including this sequence
-    uint64_t keep = 0;     ///< Number of messages to keep
+    std::optional<QString> subject;    ///< Subject to match against messages for the purge command
+    uint64_t sequence = 0;             ///< Purge up to but not including this sequence
+    uint64_t keep = 0;                 ///< Number of messages to keep
 };
 
 struct JsOptionsStream {
@@ -194,8 +194,8 @@ struct JsOptionsStream {
 };
 
 struct JsOptions {
-    QString prefix = "$JS.API";                 ///< JetStream API prefix
-    QString domain;                             ///< Changes the domain part of the JetStream API prefix
+    QString prefix = "$JS.API";                     ///< JetStream API prefix
+    std::optional<QString> domain;                  ///< Changes the domain part of the JetStream API prefix
     int64_t timeout = 5000;                         ///< Milliseconds to wait for JetStream API requests
     JsOptionsPublishAsync publishAsync;             ///< extra options for #js_PublishAsync
     JsOptionsPullSubscribeAsync pullSubscribeAsync; ///< extra options for #js_PullSubscribeAsync
@@ -210,19 +210,19 @@ struct JsPublishAck {
 };
 
 struct JsPublishOptions {
-    int64_t timeout = -1;            ///< Milliseconds to wait for publish response; default uses context's Wait value
-    QString msgID;               ///< Message ID used for de-duplication
-    QString expectStream;        ///< Expected stream to respond from the publish call
-    QString expectLastMessageID; ///< Expected last message ID in the stream
+    int64_t timeout = -1;                    ///< Milliseconds to wait for publish response; default uses context's Wait value
+    std::optional<QString> msgID;            ///< Message ID used for de-duplication
+    std::optional<QString> expectStream;     ///< Expected stream to respond from the publish call
+    std::optional<QString> expectLastMessageID; ///< Expected last message ID in the stream
     uint64_t expectLastSequence = 0; ///< Expected last message sequence in the stream
     uint64_t expectLastSubjectSequence = 0; ///< Expected last message sequence for the subject in the stream
     bool expectNoMessage = false;           ///< Expected no message (sequence == 0) for the subject in the stream
 };
 
 struct JsSubOptions {
-    QString stream;   ///< Bind subscription to this stream name
-    QString consumer; ///< Bind to this existing consumer (must be pre-created)
-    QString queue;    ///< Queue group name for queue subscriptions
+    std::optional<QString> stream;   ///< Bind subscription to this stream name
+    std::optional<QString> consumer; ///< Bind to this existing consumer (must be pre-created)
+    std::optional<QString> queue;    ///< Queue group name for queue subscriptions
     bool ordered = false; ///< If true, creates an ordered ephemeral consumer
     JsConsumerConfig config;
     // Note: ManualAck is not exposed here — managed internally by the subscription type
