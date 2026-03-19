@@ -48,12 +48,12 @@ void Message::ack() {
     checkJsError(s, jsErr);
 }
 
-void Message::nack(int64_t delay) {
+void Message::nack(std::optional<int64_t> delay) {
     natsStatus s;
-    if (delay == -1) {
-        s = natsMsg_Nak(m_natsMsg.get(), nullptr);
+    if (delay.has_value()) {
+        s = natsMsg_NakWithDelay(m_natsMsg.get(), delay.value(), nullptr);
     } else {
-        s = natsMsg_NakWithDelay(m_natsMsg.get(), delay, nullptr);
+        s = natsMsg_Nak(m_natsMsg.get(), nullptr);
     }
     checkError(s);
 }
@@ -90,17 +90,17 @@ void JetStream::asyncPublish(const Message& msg, const JsPublishOptions& opts) {
     convertAndHandle(opts, [&](jsPubOptions& jsOpts) { doAsyncPublish(msg, &jsOpts); });
 }
 
-void JetStream::waitForPublishCompleted(int64_t timeout) {
-    // TODO use QtConcurrent::run and return QFuture?
+void JetStream::waitForPublishCompleted(std::optional<int64_t> timeout) {
     natsStatus s = NATS_OK;
-    if (timeout != -1) {
-        jsPubOptions jsOpts;
-        jsPubOptions_Init(&jsOpts);
-        jsOpts.MaxWait = timeout;
-        s = js_PublishAsyncComplete(m_jsCtx, &jsOpts);
+
+    if (timeout.has_value()) {
+        convertAndHandle(JsPublishOptions{.timeout = timeout}, [&](jsPubOptions& jsOpts) {
+            s = js_PublishAsyncComplete(m_jsCtx, &jsOpts);
+        });
     } else {
         s = js_PublishAsyncComplete(m_jsCtx, nullptr);
     }
+
     if (s == NATS_TIMEOUT) {
         // optionally we can delete the messages, but they might be ACK'ed later
         // natsMsgList list;

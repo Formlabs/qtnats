@@ -214,7 +214,7 @@ struct JsPublishAck {
 };
 
 struct JsPublishOptions {
-    int64_t timeout = -1;         ///< Milliseconds to wait for publish response; default uses context's Wait value
+    std::optional<int64_t> timeout;         ///< Milliseconds to wait for publish response; default uses context's Wait value
     std::optional<QString> msgID; ///< Message ID used for de-duplication
     std::optional<QString> expectStream;        ///< Expected stream to respond from the publish call
     std::optional<QString> expectLastMessageID; ///< Expected last message ID in the stream
@@ -244,7 +244,7 @@ struct QTNATS_EXPORT Message {
     // JetStream acknowledgments
     void ack();
 
-    void nack(int64_t delay = -1); // ms
+    void nack(std::optional<int64_t> delay); // ms
     void inProgress();
 
     void terminate();
@@ -417,7 +417,7 @@ public:
 
     void asyncPublish(const Message& msg, const JsPublishOptions& opts);
 
-    void waitForPublishCompleted(int64_t timeout = -1);
+    void waitForPublishCompleted(std::optional<int64_t> timeout = std::nullopt);
 
     Subscription* subscribe(const QString& subject, const QString& stream, const QString& consumer);
 

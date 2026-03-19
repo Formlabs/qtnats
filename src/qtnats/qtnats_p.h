@@ -246,7 +246,7 @@ auto convertAndHandle(const JsPublishOptions& opts, F&& handler) -> std::invoke_
     // No jsPubOptions_Init() — default values are already set in JsPublishOptions
     StringArena a;
     jsPubOptions o = {};
-    o.MaxWait = opts.timeout;
+    o.MaxWait = opts.timeout.has_value() ? opts.timeout.value() : 0;
     o.MsgId = a.add(opts.msgID);
     o.ExpectStream = a.add(opts.expectStream);
     o.ExpectLastMsgId = a.add(opts.expectLastMessageID);
