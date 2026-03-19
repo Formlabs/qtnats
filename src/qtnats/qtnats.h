@@ -18,12 +18,10 @@ governing permissions and  limitations under the License.
 #include <QList>
 #include <QMap>
 
-#include <QObject>
-// I've received the clarification that Latin-1 should be used everywhere for strings, so QByteArray is clearer API than
-// QString https://github.com/nats-io/nats.c/issues/573
 #include <QByteArray>
 #include <QFuture>
 #include <QMultiHash>
+#include <QObject>
 #include <QSemaphore>
 #include <QUrl>
 
@@ -34,7 +32,7 @@ governing permissions and  limitations under the License.
 namespace QtNats {
 QTNATS_EXPORT Q_NAMESPACE // we need the "export" directive due to https://bugreports.qt.io/browse/QTBUG-68014
 
-    using MessageHeaders = QMultiHash<QByteArray, QByteArray>;
+    using MessageHeaders = QMultiHash<QString, QByteArray>;
 
 // need to throw it from QFuture; otherwise it would be derived from std::runtime_error
 // in fact, QException inherits from std::exception, although it's not documented
@@ -105,9 +103,9 @@ enum class JsReplayPolicy {
 Q_ENUM_NS(JsReplayPolicy)
 
 struct JsConsumerConfig {
-    QByteArray name;
-    QByteArray durable;
-    QByteArray description;
+    QString name;
+    QString durable;
+    QString description;
 
     // nullopt = leave at existing consumer's value (for jsSubOptions bind); 0 = DeliverAll / AckExplicit /
     // ReplayInstant
@@ -122,9 +120,9 @@ struct JsConsumerConfig {
     int64_t maxDeliver = 0; ///< Maximum number of delivery attempts
     QList<int64_t> backOff; ///< Redelivery intervals, nanoseconds
 
-    QByteArray filterSubject;   ///< Subject filter for this consumer
-    uint64_t rateLimit = 0;     ///< Rate limit in bits per second
-    QByteArray sampleFrequency; ///< Percentage of messages to sample for observability
+    QString filterSubject;   ///< Subject filter for this consumer
+    uint64_t rateLimit = 0;      ///< Rate limit in bits per second
+    QString sampleFrequency; ///< Percentage of messages to sample for observability
 
     int64_t maxWaiting = 0;    ///< Maximum number of outstanding pull requests
     int64_t maxAckPending = 0; ///< Maximum number of unacknowledged messages
@@ -139,16 +137,16 @@ struct JsConsumerConfig {
     int64_t maxRequestMaxBytes = 0; ///< Maximum pull request byte limit
 
     // Push-based options
-    QByteArray deliverSubject;
-    QByteArray deliverGroup;
+    QString deliverSubject;
+    QString deliverGroup;
 
     int64_t inactiveThreshold = 0; ///< Ephemeral consumer inactivity threshold, nanoseconds
     int64_t replicas = 0;
     bool memoryStorage = false;
 
     // Added in NATS 2.10
-    QList<QByteArray> filterSubjects; ///< Multiple subject filters
-    QMap<QByteArray, QByteArray> metadata;
+    QList<QString> filterSubjects; ///< Multiple subject filters
+    QMap<QString, QByteArray> metadata;
 
     // Added in NATS 2.11
     int64_t pauseUntil = 0; ///< Suspend consumer until this UTC nanosecond timestamp
@@ -174,11 +172,11 @@ struct JsOptionsPullSubscribeAsync {
 
 struct JsOptionsStreamInfo {
     bool deletedDetails = false; ///< Include list of deleted message sequences
-    QByteArray subjectsFilter;   ///< Filter subjects returned in stream state
+    QString subjectsFilter;  ///< Filter subjects returned in stream state
 };
 
 struct JsOptionsStreamPurge {
-    QByteArray subject;    ///< Subject to match against messages for the purge command
+    QString subject;   ///< Subject to match against messages for the purge command
     uint64_t sequence = 0; ///< Purge up to but not including this sequence
     uint64_t keep = 0;     ///< Number of messages to keep
 };
@@ -189,8 +187,8 @@ struct JsOptionsStream {
 };
 
 struct JsOptions {
-    QByteArray prefix = "$JS.API";                  ///< JetStream API prefix
-    QByteArray domain;                              ///< Changes the domain part of the JetStream API prefix
+    QString prefix = "$JS.API";                 ///< JetStream API prefix
+    QString domain;                             ///< Changes the domain part of the JetStream API prefix
     int64_t timeout = 5000;                         ///< Milliseconds to wait for JetStream API requests
     JsOptionsPublishAsync publishAsync;             ///< extra options for #js_PublishAsync
     JsOptionsPullSubscribeAsync pullSubscribeAsync; ///< extra options for #js_PullSubscribeAsync
@@ -198,26 +196,26 @@ struct JsOptions {
 };
 
 struct JsPublishAck {
-    QByteArray stream;
+    QString stream;
     uint64_t sequence = 0;
-    QByteArray domain;
+    QString domain;
     bool duplicate = false;
 };
 
 struct JsPublishOptions {
     int64_t timeout = -1;            ///< Milliseconds to wait for publish response; default uses context's Wait value
-    QByteArray msgID;                ///< Message ID used for de-duplication
-    QByteArray expectStream;         ///< Expected stream to respond from the publish call
-    QByteArray expectLastMessageID;  ///< Expected last message ID in the stream
+    QString msgID;               ///< Message ID used for de-duplication
+    QString expectStream;        ///< Expected stream to respond from the publish call
+    QString expectLastMessageID; ///< Expected last message ID in the stream
     uint64_t expectLastSequence = 0; ///< Expected last message sequence in the stream
     uint64_t expectLastSubjectSequence = 0; ///< Expected last message sequence for the subject in the stream
     bool expectNoMessage = false;           ///< Expected no message (sequence == 0) for the subject in the stream
 };
 
 struct JsSubOptions {
-    QByteArray stream;    ///< Bind subscription to this stream name
-    QByteArray consumer;  ///< Bind to this existing consumer (must be pre-created)
-    QByteArray queue;     ///< Queue group name for queue subscriptions
+    QString stream;   ///< Bind subscription to this stream name
+    QString consumer; ///< Bind to this existing consumer (must be pre-created)
+    QString queue;    ///< Queue group name for queue subscriptions
     bool ordered = false; ///< If true, creates an ordered ephemeral consumer
     JsConsumerConfig config;
     // Note: ManualAck is not exposed here — managed internally by the subscription type
@@ -226,7 +224,7 @@ struct JsSubOptions {
 struct QTNATS_EXPORT Message {
     Message() = default;
 
-    Message(QByteArray in_subject, const QByteArray& in_data) : subject(std::move(in_subject)), data(in_data) {}
+    Message(QString in_subject, const QByteArray& in_data) : subject(std::move(in_subject)), data(in_data) {}
 
     explicit Message(natsMsg* cmsg) noexcept;
 
@@ -238,7 +236,7 @@ struct QTNATS_EXPORT Message {
     void inProgress();
     void terminate();
 
-    QByteArray subject;
+    QString subject;
     QByteArray reply;
     QByteArray data;
     // NB! 1. headers are case-sensitive
@@ -251,10 +249,10 @@ private:
 
 struct QTNATS_EXPORT Options {
     QList<QUrl> servers;
-    QByteArray user;
-    QByteArray password;
-    QByteArray token;
-    QByteArray name;
+    QString user;
+    QString password;
+    QString token;
+    QString name;
     bool secure = false;
     bool verbose = false;
     bool pedantic = false;
@@ -315,9 +313,9 @@ public:
 
     QFuture<Message> asyncRequest(const Message& msg, int64_t timeout = 2000);
 
-    Subscription* subscribe(const QByteArray& subject);
+    Subscription* subscribe(const QString& subject);
 
-    Subscription* subscribe(const QByteArray& subject, const QByteArray& queueGroup);
+    Subscription* subscribe(const QString& subject, const QString& queueGroup);
 
     bool ping(int64_t timeout = 10000) noexcept; // ms
 
@@ -412,9 +410,9 @@ public:
 
     void waitForPublishCompleted(int64_t timeout = -1);
 
-    Subscription* subscribe(const QByteArray& subject, const QByteArray& stream, const QByteArray& consumer);
+    Subscription* subscribe(const QString& subject, const QString& stream, const QString& consumer);
 
-    PullSubscription* pullSubscribe(const QByteArray& subject, const QByteArray& stream, const QByteArray& consumer);
+    PullSubscription* pullSubscribe(const QString& subject, const QString& stream, const QString& consumer);
 
     jsCtx* getJsContext() const { return m_jsCtx; }
 

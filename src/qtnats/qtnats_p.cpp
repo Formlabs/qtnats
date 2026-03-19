@@ -29,9 +29,9 @@ Message fromC(NatsMsgPtr msg) { return Message(msg.release()); }
 
 JsPublishAck fromC(const JsPubAckPtr& ack) {
     JsPublishAck result;
-    result.stream = QByteArray(ack->Stream);
+    result.stream = QString::fromUtf8(ack->Stream);
     result.sequence = ack->Sequence;
-    result.domain = QByteArray(ack->Domain);
+    result.domain = QString::fromUtf8(ack->Domain);
     result.duplicate = ack->Duplicate;
     return result;
 }

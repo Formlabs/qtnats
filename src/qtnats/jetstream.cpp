@@ -120,13 +120,20 @@ void JetStream::waitForPublishCompleted(int64_t timeout) {
     checkError(s);
 }
 
-Subscription* JetStream::subscribe(const QByteArray& subject, const QByteArray& stream, const QByteArray& consumer) {
+Subscription* JetStream::subscribe(const QString& subject, const QString& stream, const QString& consumer) {
     // manualAck=true: avoid _autoAckCB in cnats internals, because it takes over ownership of delivered messages
     auto sub = std::unique_ptr<Subscription>(new Subscription(nullptr));
     jsErrCode jsErr = {};
     convertAndHandle(JsSubOptions{stream, consumer}, /*manualAck=*/true, [&](jsSubOptions& subOpts) {
         const natsStatus s = js_Subscribe(
-            &sub->m_sub, m_jsCtx, subject.constData(), &subscriptionCallback, sub.get(), nullptr, &subOpts, &jsErr
+            &sub->m_sub,
+            m_jsCtx,
+            subject.toUtf8().constData(),
+            &subscriptionCallback,
+            sub.get(),
+            nullptr,
+            &subOpts,
+            &jsErr
         );
         checkJsError(s, jsErr);
     });
@@ -134,16 +141,13 @@ Subscription* JetStream::subscribe(const QByteArray& subject, const QByteArray& 
     return sub.release();
 }
 
-PullSubscription* JetStream::pullSubscribe(
-    const QByteArray& subject,
-    const QByteArray& stream,
-    const QByteArray& consumer
-) {
+PullSubscription* JetStream::pullSubscribe(const QString& subject, const QString& stream, const QString& consumer) {
     auto sub = std::unique_ptr<PullSubscription>(new PullSubscription(nullptr));
     jsErrCode jsErr = {};
     convertAndHandle(JsSubOptions{stream, consumer}, /*manualAck=*/false, [&](jsSubOptions& subOpts) {
-        const natsStatus s =
-            js_PullSubscribe(&sub->m_sub, m_jsCtx, subject.constData(), consumer.constData(), nullptr, &subOpts, &jsErr);
+        const natsStatus s = js_PullSubscribe(
+            &sub->m_sub, m_jsCtx, subject.toUtf8().constData(), consumer.toUtf8().constData(), nullptr, &subOpts, &jsErr
+        );
         checkJsError(s, jsErr);
     });
     sub->setParent(this);
@@ -165,5 +169,5 @@ JsPublishAck JetStream::doPublish(const Message& msg, jsPubOptions* opts) {
 void JetStream::doAsyncPublish(const Message& msg, jsPubOptions* opts) {
     // js_PublishMsgAsync is tricky to manage lifetime of natsMsg, so let's go the safe way
     // TODO headers will require js_PublishMsgAsync
-    checkError(js_PublishAsync(m_jsCtx, msg.subject.constData(), msg.data.constData(), msg.data.size(), opts));
+    checkError(js_PublishAsync(m_jsCtx, msg.subject.toUtf8().constData(), msg.data.constData(), msg.data.size(), opts));
 }

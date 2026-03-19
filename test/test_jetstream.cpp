@@ -81,7 +81,7 @@ void JetStreamTestCase::publish() {
 
         auto ack = js->publish(Message("test.1", "HI"));
 
-        QCOMPARE(ack.stream, QString("MY_STREAM"));
+        QCOMPARE(ack.stream, "MY_STREAM");
 
         for (int i = 0; i < 5; i++) {
             js->asyncPublish(Message("test.1", "HI"), 1000);

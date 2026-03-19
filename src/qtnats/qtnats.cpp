@@ -33,7 +33,7 @@ static const int messageTypeId = qRegisterMetaType<Message>();
 #pragma region Data types
 
 Message::Message(natsMsg* msg) noexcept : m_natsMsg(msg, &natsMsg_Destroy) {
-    subject = QByteArray(natsMsg_GetSubject(msg));
+    subject = QString::fromUtf8(natsMsg_GetSubject(msg));
     data = QByteArray(natsMsg_GetData(msg), natsMsg_GetDataLength(msg));
     reply = QByteArray(natsMsg_GetReply(msg));
 
@@ -51,7 +51,7 @@ Message::Message(natsMsg* msg) noexcept : m_natsMsg(msg, &natsMsg_Destroy) {
         s = natsMsgHeader_Values(msg, keys[i], &values, &valueCount);
         if (s != NATS_OK)
             continue;
-        const QByteArray key(keys[i]);
+        const QString key = QString::fromUtf8(keys[i]);
 
         for (int j = 0; j < valueCount; j++) {
             const QByteArray value(values[j]);
@@ -227,19 +227,19 @@ QFuture<Message> Client::asyncRequest(const Message& msg, int64_t timeout) {
     return f;
 }
 
-Subscription* Client::subscribe(const QByteArray& subject) {
+Subscription* Client::subscribe(const QString& subject) {
     // avoid a memory leak if checkError throws
     // can't use make_unique because Subscription's constructor is private
     auto sub = std::unique_ptr<Subscription>(new Subscription(nullptr));
-    checkError(natsConnection_Subscribe(&sub->m_sub, m_conn, subject.constData(), &subscriptionCallback, sub.get()));
+    checkError(natsConnection_Subscribe(&sub->m_sub, m_conn, subject.toUtf8().constData(), &subscriptionCallback, sub.get()));
     sub->setParent(this);
     return sub.release();
 }
 
-Subscription* Client::subscribe(const QByteArray& subject, const QByteArray& queueGroup) {
+Subscription* Client::subscribe(const QString& subject, const QString& queueGroup) {
     auto sub = std::unique_ptr<Subscription>(new Subscription(nullptr));
     checkError(natsConnection_QueueSubscribe(
-        &sub->m_sub, m_conn, subject.constData(), queueGroup.constData(), &subscriptionCallback, sub.get()
+        &sub->m_sub, m_conn, subject.toUtf8().constData(), queueGroup.toUtf8().constData(), &subscriptionCallback, sub.get()
     ));
     sub->setParent(this);
     return sub.release();

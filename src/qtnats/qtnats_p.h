@@ -28,6 +28,16 @@ void subscriptionCallback(natsConnection* nc, natsSubscription* sub, natsMsg* ms
 // for immediately consumed objects. The former are always handled as pointers; the latter are handled by value when
 // appropriate.
 
+// Holds UTF-8 QByteArray conversions so that const char* pointers into them remain valid
+// for the duration of a convertAndHandle call.
+struct StringArena {
+    QList<QByteArray> data;
+    const char* add(const QString& s) {
+        data.append(s.toUtf8());
+        return data.last().constData();
+    }
+};
+
 // We wrap raw pointers in unique_ptr with struct deleters to ensure proper cleanup
 // and allow construction without passing the deleter explicitly.
 struct JsPubAckDeleter {
@@ -48,6 +58,7 @@ Message fromC(NatsMsgPtr msg);
 
 template <typename F>
 auto convertAndHandle(const Message& msg, const char* reply, F&& handler) -> std::invoke_result_t<F, NatsMsgPtr&> {
+    StringArena a;
     natsMsg* cnatsMsg;
 
     const char* realReply = nullptr; // in asyncRequest I need to provide my own reply
@@ -57,13 +68,15 @@ auto convertAndHandle(const Message& msg, const char* reply, F&& handler) -> std
         realReply = msg.reply.constData();
     }
 
-    checkError(natsMsg_Create(&cnatsMsg, msg.subject.constData(), realReply, msg.data.constData(), msg.data.size()));
+    checkError(
+        natsMsg_Create(&cnatsMsg, a.add(msg.subject), realReply, msg.data.constData(), msg.data.size())
+    );
 
     NatsMsgPtr msgPtr(cnatsMsg);
 
     auto i = msg.headers.constBegin();
     while (i != msg.headers.constEnd()) {
-        checkError(natsMsgHeader_Add(cnatsMsg, i.key().constData(), i.value().constData()));
+        checkError(natsMsgHeader_Add(cnatsMsg, a.add(i.key()), i.value().constData()));
         ++i;
     }
 
@@ -72,6 +85,7 @@ auto convertAndHandle(const Message& msg, const char* reply, F&& handler) -> std
 
 template <typename F>
 auto convertAndHandle(const Options& opts, F&& handler) -> std::invoke_result_t<F, NatsOptsPtr&> {
+    StringArena a;
     natsOptions* o;
     natsOptions_Create(&o);
     NatsOptsPtr ptr(o);
@@ -86,22 +100,22 @@ auto convertAndHandle(const Options& opts, F&& handler) -> std::invoke_result_t<
         }
         checkError(natsOptions_SetServers(o, ptrs.data(), static_cast<int>(ptrs.size())));
     }
-    checkError(natsOptions_SetUserInfo(o, opts.user.constData(), opts.password.constData()));
-    checkError(natsOptions_SetToken(o, opts.token.constData()));
+    checkError(natsOptions_SetUserInfo(o, a.add(opts.user), a.add(opts.password)));
+    checkError(natsOptions_SetToken(o, a.add(opts.token)));
     checkError(natsOptions_SetNoRandomize(o, !opts.randomize)); // NB! reverted flag
     checkError(natsOptions_SetTimeout(o, opts.timeout));
-    checkError(natsOptions_SetName(o, opts.name.constData()));
+    checkError(natsOptions_SetName(o, a.add(opts.name)));
 
     // TLS/mTLS configuration
     if (opts.secure) {
         checkError(natsOptions_SetSecure(o, true));
     }
     if (!opts.caFile.isEmpty()) {
-        checkError(natsOptions_SetCATrustedCertificates(o, opts.caFile.toUtf8().constData()));
+        checkError(natsOptions_SetCATrustedCertificates(o, a.add(opts.caFile)));
     }
     if (!opts.certFile.isEmpty() && !opts.keyFile.isEmpty()) {
         checkError(
-            natsOptions_LoadCertificatesChain(o, opts.certFile.toUtf8().constData(), opts.keyFile.toUtf8().constData())
+            natsOptions_LoadCertificatesChain(o, a.add(opts.certFile), a.add(opts.keyFile))
         );
     }
 
@@ -122,10 +136,11 @@ auto convertAndHandle(const Options& opts, F&& handler) -> std::invoke_result_t<
 template <typename F>
 auto convertAndHandle(const JsConsumerConfig& c, F&& handler) -> std::invoke_result_t<F, jsConsumerConfig&> {
     // No jsConsumerConfig_Init() — default values are already set in JsConsumerConfig
+    StringArena a;
     jsConsumerConfig o = {};
-    o.Name = c.name.isEmpty() ? nullptr : c.name.constData();
-    o.Durable = c.durable.isEmpty() ? nullptr : c.durable.constData();
-    o.Description = c.description.isEmpty() ? nullptr : c.description.constData();
+    o.Name = a.add(c.name);
+    o.Durable = a.add(c.durable);
+    o.Description = a.add(c.description);
     o.DeliverPolicy =
         c.deliverPolicy ? static_cast<jsDeliverPolicy>(*c.deliverPolicy) : static_cast<jsDeliverPolicy>(-1);
     o.OptStartSeq = c.optStartSeq;
@@ -135,10 +150,10 @@ auto convertAndHandle(const JsConsumerConfig& c, F&& handler) -> std::invoke_res
     o.MaxDeliver = c.maxDeliver;
     o.BackOff = c.backOff.isEmpty() ? nullptr : const_cast<int64_t*>(c.backOff.constData());
     o.BackOffLen = static_cast<int>(c.backOff.size());
-    o.FilterSubject = c.filterSubject.isEmpty() ? nullptr : c.filterSubject.constData();
+    o.FilterSubject = a.add(c.filterSubject);
     o.ReplayPolicy = c.replayPolicy ? static_cast<jsReplayPolicy>(*c.replayPolicy) : static_cast<jsReplayPolicy>(-1);
     o.RateLimit = c.rateLimit;
-    o.SampleFrequency = c.sampleFrequency.isEmpty() ? nullptr : c.sampleFrequency.constData();
+    o.SampleFrequency = a.add(c.sampleFrequency);
     o.MaxWaiting = c.maxWaiting;
     o.MaxAckPending = c.maxAckPending;
     o.FlowControl = c.flowControl;
@@ -147,8 +162,8 @@ auto convertAndHandle(const JsConsumerConfig& c, F&& handler) -> std::invoke_res
     o.MaxRequestBatch = c.maxRequestBatch;
     o.MaxRequestExpires = c.maxRequestExpires;
     o.MaxRequestMaxBytes = c.maxRequestMaxBytes;
-    o.DeliverSubject = c.deliverSubject.isEmpty() ? nullptr : c.deliverSubject.constData();
-    o.DeliverGroup = c.deliverGroup.isEmpty() ? nullptr : c.deliverGroup.constData();
+    o.DeliverSubject = a.add(c.deliverSubject);
+    o.DeliverGroup = a.add(c.deliverGroup);
     o.InactiveThreshold = c.inactiveThreshold;
     o.Replicas = c.replicas;
     o.MemoryStorage = c.memoryStorage;
@@ -161,7 +176,8 @@ auto convertAndHandle(const JsConsumerConfig& c, F&& handler) -> std::invoke_res
 }
 
 template <typename F>
-auto convertAndHandle(const JsOptionsPublishAsync& opts, F&& handler) -> std::invoke_result_t<F, jsOptionsPublishAsync&> {
+auto convertAndHandle(const JsOptionsPublishAsync& opts, F&& handler)
+    -> std::invoke_result_t<F, jsOptionsPublishAsync&> {
     // No jsOptionsPublishAsync_Init() — default values are already set in JsOptionsPublishAsync
     jsOptionsPublishAsync o = {};
     o.MaxPending = opts.maxPending;
@@ -195,18 +211,19 @@ auto convertAndHandle(const JsOptionsPullSubscribeAsync& opts, F&& handler)
 template <typename F>
 auto convertAndHandle(const JsOptionsStreamInfo& opts, F&& handler) -> std::invoke_result_t<F, jsOptionsStreamInfo&> {
     // No jsOptionsStreamInfo_Init() — default values are already set in JsOptionsStreamInfo
+    StringArena a;
     jsOptionsStreamInfo o = {};
     o.DeletedDetails = opts.deletedDetails;
-    o.SubjectsFilter = opts.subjectsFilter.constData();
+    o.SubjectsFilter = a.add(opts.subjectsFilter);
     return handler(o);
 }
 
 template <typename F>
-auto convertAndHandle(const JsOptionsStreamPurge& opts, F&& handler)
-    -> std::invoke_result_t<F, jsOptionsStreamPurge&> {
+auto convertAndHandle(const JsOptionsStreamPurge& opts, F&& handler) -> std::invoke_result_t<F, jsOptionsStreamPurge&> {
     // No jsOptionsStreamPurge_Init() — default values are already set in JsOptionsStreamPurge
+    StringArena a;
     jsOptionsStreamPurge o = {};
-    o.Subject = opts.subject.constData();
+    o.Subject = a.add(opts.subject);
     o.Sequence = opts.sequence;
     o.Keep = opts.keep;
     return handler(o);
@@ -215,11 +232,12 @@ auto convertAndHandle(const JsOptionsStreamPurge& opts, F&& handler)
 template <typename F>
 auto convertAndHandle(const JsPublishOptions& opts, F&& handler) -> std::invoke_result_t<F, jsPubOptions&> {
     // No jsPubOptions_Init() — default values are already set in JsPublishOptions
+    StringArena a;
     jsPubOptions o = {};
     o.MaxWait = opts.timeout;
-    o.MsgId = opts.msgID.isEmpty() ? nullptr : opts.msgID.constData();
-    o.ExpectStream = opts.expectStream.isEmpty() ? nullptr : opts.expectStream.constData();
-    o.ExpectLastMsgId = opts.expectLastMessageID.isEmpty() ? nullptr : opts.expectLastMessageID.constData();
+    o.MsgId = a.add(opts.msgID);
+    o.ExpectStream = a.add(opts.expectStream);
+    o.ExpectLastMsgId = a.add(opts.expectLastMessageID);
     o.ExpectLastSeq = opts.expectLastSequence;
     o.ExpectLastSubjectSeq = opts.expectLastSubjectSequence;
     o.ExpectNoMessage = opts.expectNoMessage;
@@ -245,9 +263,10 @@ auto convertAndHandle(const JsOptions& opts, F&& handler) -> std::invoke_result_
     return convertAndHandle(opts.publishAsync, [&](const jsOptionsPublishAsync& pa) {
         return convertAndHandle(opts.pullSubscribeAsync, [&](const jsOptionsPullSubscribeAsync& psa) {
             return convertAndHandle(opts.stream, [&](const jsOptionsStream& stream) {
+                StringArena a;
                 jsOptions o = {};
-                o.Prefix = opts.prefix.constData();
-                o.Domain = opts.domain.constData();
+                o.Prefix = a.add(opts.prefix);
+                o.Domain = a.add(opts.domain);
                 o.Wait = opts.timeout;
                 o.PublishAsync = pa;
                 o.PullSubscribeAsync = psa;
@@ -261,11 +280,12 @@ auto convertAndHandle(const JsOptions& opts, F&& handler) -> std::invoke_result_
 template <typename F>
 auto convertAndHandle(const JsSubOptions& opts, bool manualAck, F&& handler) -> std::invoke_result_t<F, jsSubOptions&> {
     // No jsSubOptions_Init() — default values are already set in JsSubOptions
+    StringArena a;
     return convertAndHandle(opts.config, [&](const jsConsumerConfig& config) {
         jsSubOptions o = {};
-        o.Stream = opts.stream.constData();
-        o.Consumer = opts.consumer.constData();
-        o.Queue = opts.queue.isEmpty() ? nullptr : opts.queue.constData();
+        o.Stream = a.add(opts.stream);
+        o.Consumer = a.add(opts.consumer);
+        o.Queue = opts.queue.isEmpty() ? nullptr : a.add(opts.queue);
         o.ManualAck = manualAck;
         o.Config = config;
         o.Ordered = opts.ordered;
