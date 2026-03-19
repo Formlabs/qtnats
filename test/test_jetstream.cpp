@@ -43,7 +43,13 @@ private Q_SLOTS:
 };
 
 void JetStreamTestCase::initTestCase() {
-    QDir::setCurrent("../qtnats/test"); //default pwd is "build"
+    // It might be nice to use something like CMRC to statically link the test config files; that's another dependency
+    // though, so for now we'll just verify that the directory actually exists.
+    QVERIFY2(
+        QDir::setCurrent("../qtnats/test"),
+        "Could not find test directory — run the test binary from the build directory, or update the path to match "
+        "your build directory"
+    );
 
     connect(&natsServer, &QProcess::stateChanged, [](QProcess::ProcessState newState) {
         cout << "nats-server: " << qPrintable(enumToString(newState)) << endl;
