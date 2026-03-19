@@ -20,8 +20,9 @@
 using namespace QtNats;
 
 static void checkJsError(natsStatus s, jsErrCode js) {
-    if (s == NATS_OK)
+    if (s == NATS_OK) {
         return;
+    }
     throw JetStreamException(s, js);
 }
 

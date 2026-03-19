@@ -84,6 +84,7 @@ enum class ConnectionStatus {
     DrainingSubs = NATS_CONN_STATUS_DRAINING_SUBS,
     DrainingPubs = NATS_CONN_STATUS_DRAINING_PUBS
 };
+
 Q_ENUM_NS(ConnectionStatus)
 
 enum class JsAckPolicy {
@@ -91,6 +92,7 @@ enum class JsAckPolicy {
     None = js_AckNone,
     All = js_AckAll,
 };
+
 Q_ENUM_NS(JsAckPolicy)
 
 enum class JsDeliverPolicy {
@@ -101,12 +103,14 @@ enum class JsDeliverPolicy {
     ByStartTime = js_DeliverByStartTime,
     LastPerSubject = js_DeliverLastPerSubject,
 };
+
 Q_ENUM_NS(JsDeliverPolicy)
 
 enum class JsReplayPolicy {
     Instant = js_ReplayInstant,
     Original = js_ReplayOriginal,
 };
+
 Q_ENUM_NS(JsReplayPolicy)
 
 struct JsConsumerConfig {
@@ -128,7 +132,7 @@ struct JsConsumerConfig {
     QList<int64_t> backOff; ///< Redelivery intervals, nanoseconds
 
     std::optional<QString> filterSubject;   ///< Subject filter for this consumer
-    uint64_t rateLimit = 0;      ///< Rate limit in bits per second
+    uint64_t rateLimit = 0;                 ///< Rate limit in bits per second
     std::optional<QString> sampleFrequency; ///< Percentage of messages to sample for observability
 
     int64_t maxWaiting = 0;    ///< Maximum number of outstanding pull requests
@@ -178,14 +182,14 @@ struct JsOptionsPullSubscribeAsync {
 };
 
 struct JsOptionsStreamInfo {
-    bool deletedDetails = false;              ///< Include list of deleted message sequences
-    std::optional<QString> subjectsFilter;    ///< Filter subjects returned in stream state
+    bool deletedDetails = false;           ///< Include list of deleted message sequences
+    std::optional<QString> subjectsFilter; ///< Filter subjects returned in stream state
 };
 
 struct JsOptionsStreamPurge {
-    std::optional<QString> subject;    ///< Subject to match against messages for the purge command
-    uint64_t sequence = 0;             ///< Purge up to but not including this sequence
-    uint64_t keep = 0;                 ///< Number of messages to keep
+    std::optional<QString> subject; ///< Subject to match against messages for the purge command
+    uint64_t sequence = 0;          ///< Purge up to but not including this sequence
+    uint64_t keep = 0;              ///< Number of messages to keep
 };
 
 struct JsOptionsStream {
@@ -210,20 +214,20 @@ struct JsPublishAck {
 };
 
 struct JsPublishOptions {
-    int64_t timeout = -1;                    ///< Milliseconds to wait for publish response; default uses context's Wait value
-    std::optional<QString> msgID;            ///< Message ID used for de-duplication
-    std::optional<QString> expectStream;     ///< Expected stream to respond from the publish call
+    int64_t timeout = -1;         ///< Milliseconds to wait for publish response; default uses context's Wait value
+    std::optional<QString> msgID; ///< Message ID used for de-duplication
+    std::optional<QString> expectStream;        ///< Expected stream to respond from the publish call
     std::optional<QString> expectLastMessageID; ///< Expected last message ID in the stream
-    uint64_t expectLastSequence = 0; ///< Expected last message sequence in the stream
-    uint64_t expectLastSubjectSequence = 0; ///< Expected last message sequence for the subject in the stream
-    bool expectNoMessage = false;           ///< Expected no message (sequence == 0) for the subject in the stream
+    uint64_t expectLastSequence = 0;            ///< Expected last message sequence in the stream
+    uint64_t expectLastSubjectSequence = 0;     ///< Expected last message sequence for the subject in the stream
+    bool expectNoMessage = false;               ///< Expected no message (sequence == 0) for the subject in the stream
 };
 
 struct JsSubOptions {
     std::optional<QString> stream;   ///< Bind subscription to this stream name
     std::optional<QString> consumer; ///< Bind to this existing consumer (must be pre-created)
     std::optional<QString> queue;    ///< Queue group name for queue subscriptions
-    bool ordered = false; ///< If true, creates an ordered ephemeral consumer
+    bool ordered = false;            ///< If true, creates an ordered ephemeral consumer
     JsConsumerConfig config;
     // Note: ManualAck is not exposed here — managed internally by the subscription type
 };
@@ -239,8 +243,10 @@ struct QTNATS_EXPORT Message {
 
     // JetStream acknowledgments
     void ack();
+
     void nack(int64_t delay = -1); // ms
     void inProgress();
+
     void terminate();
 
     QString subject;
@@ -439,7 +445,6 @@ private:
 };
 
 #pragma endregion
-
 } // namespace QtNats
 
 Q_DECLARE_METATYPE(QtNats::Message)
