@@ -94,7 +94,7 @@ template <typename F>
 auto convertAndHandle(const Options& opts, F&& handler) -> std::invoke_result_t<F, NatsOptsPtr&> {
     StringArena a;
     natsOptions* o;
-    natsOptions_Create(&o);
+    checkError(natsOptions_Create(&o));
     NatsOptsPtr ptr(o);
 
     if (!opts.servers.empty()) {
