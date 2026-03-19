@@ -19,7 +19,7 @@
 
 using namespace QtNats;
 
-static void checkJsError(natsStatus s, jsErrCode js) {
+static void checkJsError(const natsStatus& s, const jsErrCode& js) {
     if (s == NATS_OK) {
         return;
     }
@@ -42,13 +42,13 @@ JetStream* Client::jetStream(const JsOptions& options) {
     return js;
 }
 
-void Message::ack() {
+void Message::ack() const {
     jsErrCode jsErr;
     const natsStatus s = natsMsg_AckSync(m_natsMsg.get(), nullptr, &jsErr);
     checkJsError(s, jsErr);
 }
 
-void Message::nack(std::optional<int64_t> delay) {
+void Message::nack(std::optional<int64_t> delay) const {
     natsStatus s;
     if (delay.has_value()) {
         s = natsMsg_NakWithDelay(m_natsMsg.get(), delay.value(), nullptr);
@@ -58,13 +58,13 @@ void Message::nack(std::optional<int64_t> delay) {
     checkError(s);
 }
 
-void Message::inProgress() { checkError(natsMsg_InProgress(m_natsMsg.get(), nullptr)); }
+void Message::inProgress() const { checkError(natsMsg_InProgress(m_natsMsg.get(), nullptr)); }
 
-void Message::terminate() { checkError(natsMsg_Term(m_natsMsg.get(), nullptr)); }
+void Message::terminate() const { checkError(natsMsg_Term(m_natsMsg.get(), nullptr)); }
 
 PullSubscription::~PullSubscription() noexcept { natsSubscription_Destroy(m_sub); }
 
-QList<Message> PullSubscription::fetch(int batch, int64_t timeout) {
+QList<Message> PullSubscription::fetch(const int batch, const int64_t timeout) const {
     // see also https://github.com/nats-io/nats.c/issues/545
     natsMsgList list{nullptr, 0};
     jsErrCode jsErr;
@@ -86,11 +86,11 @@ JsPublishAck JetStream::publish(const Message& msg, const JsPublishOptions& opts
     return convertAndHandle(opts, [&](jsPubOptions& jsOpts) { return doPublish(msg, &jsOpts); });
 }
 
-void JetStream::asyncPublish(const Message& msg, const JsPublishOptions& opts) {
+void JetStream::asyncPublish(const Message& msg, const JsPublishOptions& opts) const {
     convertAndHandle(opts, [&](jsPubOptions& jsOpts) { doAsyncPublish(msg, &jsOpts); });
 }
 
-void JetStream::waitForPublishCompleted(std::optional<int64_t> timeout) {
+void JetStream::waitForPublishCompleted(const std::optional<int64_t> timeout) const {
     natsStatus s = NATS_OK;
 
     if (timeout.has_value()) {
@@ -156,7 +156,7 @@ JsPublishAck JetStream::doPublish(const Message& msg, jsPubOptions* opts) {
     });
 }
 
-void JetStream::doAsyncPublish(const Message& msg, jsPubOptions* opts) {
+void JetStream::doAsyncPublish(const Message& msg, jsPubOptions* opts) const {
     // js_PublishMsgAsync is tricky to manage lifetime of natsMsg, so let's go the safe way
     // TODO headers will require js_PublishMsgAsync
     checkError(js_PublishAsync(m_jsCtx, msg.subject.toUtf8().constData(), msg.data.constData(), msg.data.size(), opts));

@@ -45,11 +45,11 @@ QTNATS_EXPORT Q_NAMESPACE // we need the "export" directive due to https://bugre
 // in fact, QException inherits from std::exception, although it's not documented
 class Exception : public QException {
 public:
-    Exception(natsStatus s) : errorCode(s) {}
+    explicit Exception(const natsStatus s) : errorCode(s) {}
 
     void raise() const override { throw *this; }
-    Exception* clone() const override { return new Exception(*this); }
-    const char* what() const noexcept override { return natsStatus_GetText(errorCode); }
+    [[nodiscard]] Exception* clone() const override { return new Exception(*this); }
+    [[nodiscard]] const char* what() const noexcept override { return natsStatus_GetText(errorCode); }
 
     const natsStatus errorCode;
 };
@@ -59,13 +59,13 @@ public:
     JetStreamException(natsStatus s, jsErrCode js) : Exception(s), jsError(js), errorText(initText(js)) {}
 
     void raise() const override { throw *this; }
-    JetStreamException* clone() const override { return new JetStreamException(*this); }
-    const char* what() const noexcept override { return errorText.constData(); }
+    [[nodiscard]] JetStreamException* clone() const override { return new JetStreamException(*this); }
+    [[nodiscard]] const char* what() const noexcept override { return errorText.constData(); }
 
     const jsErrCode jsError;
 
 private:
-    QByteArray initText(jsErrCode js) { return QString("%1: %2").arg(Exception::what()).arg(js).toLatin1(); }
+    [[nodiscard]] QByteArray initText(const jsErrCode js) const { return QString("%1: %2").arg(Exception::what()).arg(js).toLatin1(); }
 
     const QByteArray errorText;
 };
@@ -235,19 +235,19 @@ struct JsSubOptions {
 struct QTNATS_EXPORT Message {
     Message() = default;
 
-    Message(QString in_subject, const QByteArray& in_data) : subject(std::move(in_subject)), data(in_data) {}
+    Message(QString in_subject, QByteArray in_data) : subject(std::move(in_subject)), data(std::move(in_data)) {}
 
     explicit Message(natsMsg* cmsg) noexcept;
 
-    bool isIncoming() const { return bool(m_natsMsg); }
+    [[nodiscard]] bool isIncoming() const { return static_cast<bool>(m_natsMsg); }
 
     // JetStream acknowledgments
-    void ack();
+    void ack() const;
 
-    void nack(std::optional<int64_t> delay); // ms
-    void inProgress();
+    void nack(std::optional<int64_t> delay) const; // ms
+    void inProgress() const;
 
-    void terminate();
+    void terminate() const;
 
     QString subject;
     QByteArray reply;
@@ -393,7 +393,7 @@ public:
 
     PullSubscription& operator=(PullSubscription&&) = delete;
 
-    QList<Message> fetch(int batch = 1, int64_t timeout = 5000);
+    QList<Message> fetch(int batch = 1, int64_t timeout = 5000) const;
 
 private:
     PullSubscription(QObject* parent) : QObject(parent) {}
@@ -415,9 +415,9 @@ public:
 
     JsPublishAck publish(const Message& msg, const JsPublishOptions& opts);
 
-    void asyncPublish(const Message& msg, const JsPublishOptions& opts);
+    void asyncPublish(const Message& msg, const JsPublishOptions& opts) const;
 
-    void waitForPublishCompleted(std::optional<int64_t> timeout = std::nullopt);
+    void waitForPublishCompleted(std::optional<int64_t> timeout = std::nullopt) const;
 
     Subscription* subscribe(const QString& subject, const QString& stream, const QString& consumer);
 
@@ -435,7 +435,7 @@ private:
 
     JsPublishAck doPublish(const Message& msg, jsPubOptions* opts);
 
-    void doAsyncPublish(const Message& msg, jsPubOptions* opts);
+    void doAsyncPublish(const Message& msg, jsPubOptions* opts) const;
 
     friend class Client;
 };
