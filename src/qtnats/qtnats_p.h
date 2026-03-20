@@ -96,6 +96,9 @@ auto withOptional(const std::optional<T>& opt, Setter&& setter, Cont&& cont) {
 struct JsPubAckDeleter {
     void operator()(jsPubAck* p) const { jsPubAck_Destroy(p); }
 };
+struct JsStreamInfoDeleter {
+    void operator()(jsStreamInfo* p) const { jsStreamInfo_Destroy(p); }
+};
 struct NatsMsgDeleter {
     void operator()(natsMsg* p) const { natsMsg_Destroy(p); }
 };
@@ -103,11 +106,30 @@ struct NatsOptsDeleter {
     void operator()(natsOptions* p) const { natsOptions_Destroy(p); }
 };
 using JsPubAckPtr = std::unique_ptr<jsPubAck, JsPubAckDeleter>;
+using JsStreamInfoPtr = std::unique_ptr<jsStreamInfo, JsStreamInfoDeleter>;
 using NatsMsgPtr = std::unique_ptr<natsMsg, NatsMsgDeleter>;
 using NatsOptsPtr = std::unique_ptr<natsOptions, NatsOptsDeleter>;
 
 JsPublishAck fromC(const JsPubAckPtr& ack);
 Message fromC(NatsMsgPtr msg);
+
+NatsMetadata fromC(const natsMetadata& meta);
+JsExternalStream fromC(const jsExternalStream& ext);
+JsSubjectTransformConfig fromC(const jsSubjectTransformConfig& st);
+JsStreamConsumerLimits fromC(const jsStreamConsumerLimits& lim);
+JsStreamSource fromC(const jsStreamSource& src);
+JsPlacement fromC(const jsPlacement& p);
+JsRePublish fromC(const jsRePublish& rp);
+JsStreamConfig fromC(const jsStreamConfig& cfg);
+JsLostStreamData fromC(const jsLostStreamData& lost);
+JsStreamStateSubject fromC(const jsStreamStateSubject& subj);
+QList<JsStreamStateSubject> fromC(const jsStreamStateSubjects& subjs);
+JsStreamState fromC(const jsStreamState& state);
+JsPeerInfo fromC(const jsPeerInfo& peer);
+JsClusterInfo fromC(const jsClusterInfo& cluster);
+JsStreamSourceInfo fromC(const jsStreamSourceInfo& src);
+JsStreamAlternate fromC(const jsStreamAlternate& alt);
+JsStreamInfo fromC(const JsStreamInfoPtr& info);
 
 // Probe functor used by convertAndHandleAll to deduce CType without a runtime call.
 // A lambda would be simpler ([](auto& c) { return &c; }) but lambdas in unevaluated
