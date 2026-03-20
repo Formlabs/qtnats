@@ -35,20 +35,61 @@ void subscriptionCallback(natsConnection* nc, natsSubscription* sub, natsMsg* ms
 // for immediately consumed objects. The former are always handled as pointers; the latter are handled by value when
 // appropriate.
 
-// Holds UTF-8 QByteArray conversions so that const char* pointers into them remain valid
-// for the duration of a convertAndHandle call.
-struct StringArena {
-    QList<QByteArray> data;
-    const char* add(const QString& s) {
-        data.append(s.toUtf8());
-        return data.last().constData();
+// Owns heap-allocated objects of type T with stable addresses.
+// Use instead of QList when elements are added incrementally and pointers into the container must remain valid.
+// std::list is used (rather than a Qt container) because QLinkedList was removed in Qt6 and QList can reallocate.
+// emplace() zero-initializes a new T in place; add() moves an existing value in.
+template <typename T>
+struct Arena {
+    std::list<T> objects;
+
+    T* emplace() {
+        objects.push_back({});
+        return &objects.back();
     }
+    T* add(T&& val) {
+        objects.push_back(std::move(val));
+        return &objects.back();
+    }
+};
+
+// Holds UTF-8 QByteArray conversions so that const char* pointers into them remain valid
+// for the duration of a convertAndHandle call. Also owns const char* pointer arrays so that
+// const char** pointers into them are equally stable.
+struct StringArena {
+    Arena<QByteArray> utf8;
+    Arena<QList<const char*>> utf8Arrays;
+
+    const char* add(const QString& s) { return utf8.add(s.toUtf8())->constData(); }
+    const char* add(const QByteArray& b) { return utf8.add(QByteArray(b))->constData(); }
     const char* add(const std::optional<QString>& s) {
         if (!s.has_value())
             return nullptr;
         return add(*s);
     }
+    const char** add(const QList<QString>& strings) {
+        QList<const char*> ptrs;
+        ptrs.reserve(strings.size());
+        for (const auto& s : strings)
+            ptrs.append(add(s));
+        auto* stored = utf8Arrays.add(std::move(ptrs));
+        return stored->isEmpty() ? nullptr : stored->data();
+    }
 };
+
+// Continuation-passing helper for optional pointer fields.
+// If opt is empty, calls cont() immediately. If opt has a value, converts it via convertAndHandle, calls setter() to
+// attach the pointer to the parent struct, then calls cont() — all while the converted object is still on the stack.
+template <typename T, typename Setter, typename Cont>
+auto withOptional(const std::optional<T>& opt, Setter&& setter, Cont&& cont) {
+    if (!opt.has_value())
+        return cont();
+    return convertAndHandle(*opt, [&](auto& converted) {
+        setter(converted);
+        return cont();
+    });
+}
+
 
 // We wrap raw pointers in unique_ptr with struct deleters to ensure proper cleanup
 // and allow construction without passing the deleter explicitly.
@@ -67,6 +108,42 @@ using NatsOptsPtr = std::unique_ptr<natsOptions, NatsOptsDeleter>;
 
 JsPublishAck fromC(const JsPubAckPtr& ack);
 Message fromC(NatsMsgPtr msg);
+
+// Probe functor used by convertAndHandleAll to deduce CType without a runtime call.
+// A lambda would be simpler ([](auto& c) { return &c; }) but lambdas in unevaluated
+// contexts (decltype) require C++20; this named functor works in C++17.
+struct ConvertProbe {
+    template <typename C>
+    C* operator()(C& c) const { return &c; }
+};
+
+// Converts a QList of T types to a QList of C pointers and passes it to handler.
+//
+// Internally, this uses a Y-combinator (self(self, i)) to enable a lambda to recurse without needing a named free
+// function. Each recursive call nests inside the previous convertAndHandle callback, keeping every converted
+// C object on the stack simultaneously until handler() is finally invoked at the base case.
+template <typename T, typename F>
+auto convertAndHandleAll(const QList<T>& items, F&& handler) {
+    // The C type is deduced by probing convertAndHandle's return type via decltype/std::declval.
+    // This handles the empty-list case without requiring an explicit template argument.
+    // Admittedly this is hard to read, but it does work even on C++17.
+    using CType =
+        std::remove_pointer_t<decltype(convertAndHandle(std::declval<const T&>(), std::declval<ConvertProbe>()))>;
+    QList<CType*> ptrs;
+    ptrs.reserve(items.size());
+    // recurse captures itself as a parameter so it can call itself, sidestepping the usual restriction that a
+    // lambda cannot refer to its own name inside its body.
+    auto recurse = [&](auto& self, int i) -> decltype(handler(ptrs)) {
+        if (i == items.size()) {
+            return handler(ptrs);
+        }
+        return convertAndHandle(items[i], [&](CType& c) {
+            ptrs.append(&c);
+            return self(self, i + 1);
+        });
+    };
+    return recurse(recurse, 0);
+}
 
 template <typename F>
 auto convertAndHandle(const Message& msg, const char* reply, F&& handler) -> std::invoke_result_t<F, NatsMsgPtr&> {
@@ -143,6 +220,21 @@ auto convertAndHandle(const Options& opts, F&& handler) -> std::invoke_result_t<
     checkError(natsOptions_SetNoEcho(o, !opts.echo)); // NB! reverted flag
 
     return handler(ptr);
+}
+
+template <typename F>
+auto convertAndHandle(const NatsMetadata& metadata, F&& handler) -> std::invoke_result_t<F, natsMetadata&> {
+    // natsMetadata.List is [k, v, k, v, ...]; Count is the number of k/v pairs (not the list length)
+    // I blame nats.c for this.
+    StringArena a;
+    QList<const char*> ptrs;
+    ptrs.reserve(metadata.size() * 2);
+    for (auto it = metadata.constBegin(); it != metadata.constEnd(); ++it) {
+        ptrs.append(a.add(it.key()));
+        ptrs.append(a.add(it.value()));
+    }
+    natsMetadata o = {ptrs.isEmpty() ? nullptr : ptrs.data(), static_cast<int>(metadata.size())};
+    return handler(o);
 }
 
 template <typename F>
@@ -303,6 +395,142 @@ auto convertAndHandle(const JsSubOptions& opts, bool manualAck, F&& handler) -> 
         o.Ordered = opts.ordered;
         return handler(o);
     });
+}
+
+template <typename F>
+auto convertAndHandle(const JsExternalStream& ext, F&& handler) -> std::invoke_result_t<F, jsExternalStream&> {
+    StringArena a;
+    jsExternalStream o = {};
+    o.APIPrefix = a.add(ext.apiPrefix);
+    o.DeliverPrefix = a.add(ext.deliverPrefix);
+    return handler(o);
+}
+
+template <typename F>
+auto convertAndHandle(const JsStreamSource& src, F&& handler) -> std::invoke_result_t<F, jsStreamSource&> {
+    StringArena a;
+    jsStreamSource o = {};
+    o.Name = a.add(src.name);
+    o.OptStartSeq = src.optStartSeq;
+    o.OptStartTime = src.optStartTime;
+    o.FilterSubject = a.add(src.filterSubject);
+    o.Domain = a.add(src.domain);
+    return withOptional(src.external, [&](jsExternalStream& ext) { o.External = &ext; }, [&] { return handler(o); });
+}
+
+template <typename F>
+auto convertAndHandle(const JsPlacement& p, F&& handler) -> std::invoke_result_t<F, jsPlacement&> {
+    StringArena a;
+    jsPlacement o = {};
+    o.Cluster = a.add(p.cluster);
+    o.Tags = a.add(p.tags);
+    o.TagsLen = static_cast<int>(p.tags.size());
+    return handler(o);
+}
+
+template <typename F>
+auto convertAndHandle(const JsRePublish& rp, F&& handler) -> std::invoke_result_t<F, jsRePublish&> {
+    StringArena a;
+    jsRePublish o = {};
+    o.Source = a.add(rp.source);
+    o.Destination = a.add(rp.destination);
+    o.HeadersOnly = rp.headersOnly;
+    return handler(o);
+}
+
+template <typename F>
+auto convertAndHandle(const JsSubjectTransformConfig& cfg, F&& handler)
+    -> std::invoke_result_t<F, jsSubjectTransformConfig&> {
+    StringArena a;
+    jsSubjectTransformConfig o = {};
+    o.Source = a.add(cfg.source);
+    o.Destination = a.add(cfg.destination);
+    return handler(o);
+}
+
+template <typename F>
+auto convertAndHandle(const JsStreamConsumerLimits& lim, F&& handler)
+    -> std::invoke_result_t<F, jsStreamConsumerLimits&> {
+    jsStreamConsumerLimits o = {};
+    o.InactiveThreshold = lim.inactiveThreshold;
+    o.MaxAckPending = lim.maxAckPending;
+    return handler(o);
+}
+
+template <typename F>
+auto convertAndHandle(const JsStreamConfig& cfg, F&& handler) -> std::invoke_result_t<F, jsStreamConfig&> {
+    // No jsStreamConfig_Init() — defaults below replicate what Init() sets, with nullopt mapping to the Init() value.
+    StringArena a;
+    jsStreamConfig o = {};
+
+    o.Name = a.add(cfg.name);
+    o.Description = a.add(cfg.description);
+    o.Subjects = a.add(cfg.subjects);
+    o.SubjectsLen = static_cast<int>(cfg.subjects.size());
+    o.Retention = static_cast<jsRetentionPolicy>(cfg.retention);
+
+    // nullopt → Init() default (-1 = unlimited); has_value → explicit limit
+    o.MaxConsumers = cfg.maxConsumers.has_value() ? static_cast<int64_t>(*cfg.maxConsumers) : -1;
+    o.MaxMsgs = cfg.maxMsgs.has_value() ? static_cast<int64_t>(*cfg.maxMsgs) : -1;
+    o.MaxBytes = cfg.maxBytes.has_value() ? static_cast<int64_t>(*cfg.maxBytes) : -1;
+    o.MaxAge = cfg.maxAge.has_value() ? static_cast<int64_t>(*cfg.maxAge) : 0;
+    o.MaxMsgsPerSubject = cfg.maxMsgsPerSubject.has_value() ? static_cast<int64_t>(*cfg.maxMsgsPerSubject) : 0;
+    o.MaxMsgSize = cfg.maxMsgSize.has_value() ? static_cast<int32_t>(*cfg.maxMsgSize) : -1;
+
+    o.Discard = static_cast<jsDiscardPolicy>(cfg.discard);
+    o.Storage = static_cast<jsStorageType>(cfg.storage);
+    o.Replicas = cfg.replicas;
+    o.NoAck = cfg.noAck;
+    o.Template = a.add(cfg.templateOwner);
+    o.Duplicates = cfg.duplicates;
+    o.Sealed = cfg.sealed;
+    o.DenyDelete = cfg.denyDelete;
+    o.DenyPurge = cfg.denyPurge;
+    o.AllowRollup = cfg.allowRollup;
+    o.AllowDirect = cfg.allowDirect;
+    o.MirrorDirect = cfg.mirrorDirect;
+    o.DiscardNewPerSubject = cfg.discardNewPerSubject;
+    o.Compression = static_cast<jsStorageCompression>(cfg.compression);
+    o.FirstSeq = cfg.firstSeq;
+
+    // The remaining fields require nested conversions, so we build up a chain of continuations that each convert one
+    // field and then call the next, with the final continuation calling handler(o). The exact order is arbitrary.
+    auto withConsumerLimits = [&] {
+        return convertAndHandle(cfg.consumerLimits, [&](const jsStreamConsumerLimits& cl) {
+            o.ConsumerLimits = cl;
+            return handler(o);
+        });
+    };
+    auto withSubjectTransform = [&] {
+        return convertAndHandle(cfg.subjectTransform, [&](const jsSubjectTransformConfig& st) {
+            o.SubjectTransform = st;
+            return withConsumerLimits();
+        });
+    };
+    auto withRePublish = [&] {
+        return withOptional(cfg.rePublish, [&](jsRePublish& rp) { o.RePublish = &rp; }, withSubjectTransform);
+    };
+    auto withMirror = [&] {
+        return withOptional(cfg.mirror, [&](jsStreamSource& m) { o.Mirror = &m; }, withRePublish);
+    };
+    auto withPlacement = [&] {
+        return withOptional(cfg.placement, [&](jsPlacement& p) { o.Placement = &p; }, withMirror);
+    };
+    auto withMetadata = [&] {
+        return convertAndHandle(cfg.metadata, [&](const natsMetadata& meta) {
+            o.Metadata = meta;
+            return withPlacement();
+        });
+    };
+    auto withSources = [&] {
+        return convertAndHandleAll(cfg.sources, [&](QList<jsStreamSource*>& sources) {
+            o.Sources = sources.isEmpty() ? nullptr : sources.data();
+            o.SourcesLen = static_cast<int>(sources.size());
+            return withMetadata();
+        });
+    };
+
+    return withSources();
 }
 
 } // namespace QtNats
