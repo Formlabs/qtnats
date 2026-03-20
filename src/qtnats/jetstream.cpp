@@ -42,6 +42,40 @@ JetStream* Client::jetStream(const JsOptions& options) {
     return js;
 }
 
+JsStreamInfo Client::addStream(const JetStream* js, const JsStreamConfig& config) {
+    return convertAndHandle(config, [&](jsStreamConfig& jsConfig) {
+        jsStreamInfo* si;
+        jsErrCode jsErr;
+        // We'll just always use the options used to set up the JetStream
+        const natsStatus s = js_AddStream(&si, js->getJsContext(), &jsConfig, nullptr, &jsErr);
+        checkJsError(s, jsErr);
+        return fromC(JsStreamInfoPtr(si));
+    });
+}
+
+JsStreamInfo Client::updateStream(const JetStream* js, const JsStreamConfig& config) {
+    return convertAndHandle(config, [&](jsStreamConfig& jsConfig) {
+        jsStreamInfo* si;
+        jsErrCode jsErr;
+        // We'll just always use the options used to set up the JetStream
+        const natsStatus s = js_UpdateStream(&si, js->getJsContext(), &jsConfig, nullptr, &jsErr);
+        checkJsError(s, jsErr);
+        return fromC(JsStreamInfoPtr(si));
+    });
+}
+
+void Client::purgeStream(const JetStream* js, const QString& stream) {
+    jsErrCode jsErr;
+    const natsStatus s = js_PurgeStream(js->getJsContext(), stream.toUtf8().constData(), nullptr, &jsErr);
+    checkJsError(s, jsErr);
+}
+
+void Client::deleteStream(const JetStream* js, const QString& stream) {
+    jsErrCode jsErr;
+    const natsStatus s = js_DeleteStream(js->getJsContext(), stream.toUtf8().constData(), nullptr, &jsErr);
+    checkJsError(s, jsErr);
+}
+
 void Message::ack() const {
     jsErrCode jsErr;
     const natsStatus s = natsMsg_AckSync(m_natsMsg.get(), nullptr, &jsErr);

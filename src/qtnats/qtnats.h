@@ -518,6 +518,14 @@ public:
 
     JetStream* jetStream(const JsOptions& options = JsOptions());
 
+    static JsStreamInfo addStream(const JetStream* js, const JsStreamConfig& config);
+
+    static JsStreamInfo updateStream(const JetStream* js, const JsStreamConfig& config);
+
+    static void purgeStream(const JetStream* js, const QString& stream);
+
+    static void deleteStream(const JetStream* js, const QString& stream);
+
     natsConnection* getNatsConnection() const { return m_conn; }
 
 Q_SIGNALS:
