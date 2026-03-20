@@ -40,6 +40,7 @@ namespace QtNats {
 QTNATS_EXPORT Q_NAMESPACE // we need the "export" directive due to https://bugreports.qt.io/browse/QTBUG-68014
 
     using MessageHeaders = QMultiHash<QString, QByteArray>;
+    using NatsMetadata = QMap<QString, QByteArray>;
 
 // need to throw it from QFuture; otherwise it would be derived from std::runtime_error
 // in fact, QException inherits from std::exception, although it's not documented
@@ -65,7 +66,9 @@ public:
     const jsErrCode jsError;
 
 private:
-    [[nodiscard]] QByteArray initText(const jsErrCode js) const { return QString("%1: %2").arg(Exception::what()).arg(js).toLatin1(); }
+    [[nodiscard]] QByteArray initText(const jsErrCode js) const {
+        return QString("%1: %2").arg(Exception::what()).arg(js).toLatin1();
+    }
 
     const QByteArray errorText;
 };
@@ -113,6 +116,35 @@ enum class JsReplayPolicy {
 
 Q_ENUM_NS(JsReplayPolicy)
 
+enum class JsRetentionPolicy {
+    Limits = js_LimitsPolicy,       ///< Retain messages until any limit (MaxMsgs/MaxBytes/MaxAge) is reached (default)
+    Interest = js_InterestPolicy,   ///< Remove message when all known consumers have acknowledged it
+    WorkQueue = js_WorkQueuePolicy, ///< Remove message when the first consumer acknowledges it
+};
+
+Q_ENUM_NS(JsRetentionPolicy)
+
+enum class JsDiscardPolicy {
+    Old = js_DiscardOld, ///< Remove older messages to stay within limits (default)
+    New = js_DiscardNew, ///< Reject new messages when limits are reached
+};
+
+Q_ENUM_NS(JsDiscardPolicy)
+
+enum class JsStorageType {
+    File = js_FileStorage,     ///< Persist messages to disk (default)
+    Memory = js_MemoryStorage, ///< Store messages in memory only
+};
+
+Q_ENUM_NS(JsStorageType)
+
+enum class JsStorageCompression {
+    None = js_StorageCompressionNone, ///< No compression (default)
+    S2 = js_StorageCompressionS2,     ///< S2 compression
+};
+
+Q_ENUM_NS(JsStorageCompression)
+
 struct JsConsumerConfig {
     std::optional<QString> name;
     std::optional<QString> durable;
@@ -157,10 +189,90 @@ struct JsConsumerConfig {
 
     // Added in NATS 2.10
     QList<QString> filterSubjects; ///< Multiple subject filters
-    QMap<QString, QByteArray> metadata;
+    NatsMetadata metadata;
 
     // Added in NATS 2.11
     int64_t pauseUntil = 0; ///< Suspend consumer until this UTC nanosecond timestamp
+};
+
+struct JsExternalStream {
+    QString apiPrefix;                    ///< API prefix for accessing the stream in another account
+    std::optional<QString> deliverPrefix; ///< Delivery prefix for push consumers
+};
+
+struct JsStreamSource {
+    QString name;                             ///< Name of the stream to source from
+    uint64_t optStartSeq = 0;                 ///< Start sourcing from this sequence number
+    int64_t optStartTime = 0;                 ///< Start sourcing from this UTC nanosecond timestamp
+    std::optional<QString> filterSubject;     ///< Only source messages matching this subject
+    std::optional<JsExternalStream> external; ///< Cross-account stream access; mutually exclusive with domain
+    std::optional<QString> domain;            ///< Domain for cross-account access; mutually exclusive with external
+};
+
+struct JsPlacement {
+    QString cluster;     ///< Cluster name to place the stream on
+    QList<QString> tags; ///< Server tags used to select placement candidates
+};
+
+struct JsRePublish {
+    QString source;           ///< Subject pattern to match for republishing (default: all)
+    QString destination;      ///< Destination subject for republished messages
+    bool headersOnly = false; ///< Republish only the headers, not the payload
+};
+
+struct JsSubjectTransformConfig {
+    std::optional<QString> source; ///< Subject filter to match incoming messages
+    QString destination;           ///< Subject transform destination
+};
+
+struct JsStreamConsumerLimits {
+    int64_t inactiveThreshold = 0; ///< Default inactivity threshold for ephemeral consumers, nanoseconds
+    int maxAckPending = 0;         ///< Maximum number of unacknowledged messages across all consumers
+};
+
+struct JsStreamConfig {
+    QString name; ///< Stream name; must be unique and not contain spaces, tabs, period, greater-than, or asterisk
+    std::optional<QString> description; ///< Human-readable description
+
+    QList<QString> subjects; ///< Subjects the stream will consume; defaults to the stream name if empty
+
+    JsRetentionPolicy retention = JsRetentionPolicy::Limits;
+    JsDiscardPolicy discard = JsDiscardPolicy::Old;
+    JsStorageType storage = JsStorageType::File;
+    JsStorageCompression compression = JsStorageCompression::None; ///< Added in NATS 2.10
+
+    std::optional<uint64_t> maxConsumers;      ///< Maximum number of consumers; nullopt = unlimited (-1 in cnats)
+    std::optional<uint64_t> maxMsgs;           ///< Maximum number of messages; nullopt = unlimited (-1 in cnats)
+    std::optional<uint64_t> maxBytes;          ///< Maximum total size in bytes; nullopt = unlimited (-1 in cnats)
+    std::optional<int64_t> maxAge;             ///< Maximum message age, nanoseconds; nullopt = unlimited (0 in cnats)
+    std::optional<uint64_t> maxMsgsPerSubject; ///< Maximum messages per subject; nullopt = unlimited (0 in cnats)
+    std::optional<uint32_t> maxMsgSize;        ///< Maximum individual message size in bytes; nullopt = unlimited (-1 in cnats)
+
+    int64_t replicas = 1;   ///< Number of replicas (cluster only)
+    bool noAck = false;     ///< Disable acknowledgement for the stream
+    int64_t duplicates = 0; ///< Duplicate message window, nanoseconds
+
+    std::optional<QString> templateOwner; ///< Name of the JetStream template that manages this stream
+
+    std::optional<JsPlacement> placement; ///< Placement constraints for the stream in a cluster
+    std::optional<JsStreamSource> mirror; ///< Mirror configuration (stream mirrors another stream)
+    QList<JsStreamSource> sources;        ///< Sources from other streams
+
+    bool sealed = false;               ///< Seal the stream; no new messages accepted or deleted
+    bool denyDelete = false;           ///< Prevent message deletion
+    bool denyPurge = false;            ///< Prevent stream purge
+    bool allowRollup = false;          ///< Allow purging messages via the Rollup header
+    bool allowDirect = false;          ///< Enable high-performance direct message access
+    bool mirrorDirect = false;         ///< Enable direct access for mirror streams
+    bool discardNewPerSubject = false; ///< Apply DiscardNew per subject rather than the whole stream
+
+    std::optional<JsRePublish> rePublish;      ///< Republish matched messages to another subject
+    JsSubjectTransformConfig subjectTransform; ///< Transform subject on ingress (NATS 2.10)
+    JsStreamConsumerLimits consumerLimits;     ///< Default limits applied to all consumers
+
+    uint64_t firstSeq = 0; ///< Starting sequence number for the stream (NATS 2.10)
+
+    NatsMetadata metadata; ///< User-defined key/value metadata (NATS 2.10)
 };
 
 struct JsOptionsPublishAsync {
@@ -214,8 +326,8 @@ struct JsPublishAck {
 };
 
 struct JsPublishOptions {
-    std::optional<int64_t> timeout;         ///< Milliseconds to wait for publish response; default uses context's Wait value
-    std::optional<QString> msgID; ///< Message ID used for de-duplication
+    std::optional<int64_t> timeout; ///< Milliseconds to wait for publish response; default uses context's Wait value
+    std::optional<QString> msgID;   ///< Message ID used for de-duplication
     std::optional<QString> expectStream;        ///< Expected stream to respond from the publish call
     std::optional<QString> expectLastMessageID; ///< Expected last message ID in the stream
     uint64_t expectLastSequence = 0;            ///< Expected last message sequence in the stream
