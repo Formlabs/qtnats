@@ -275,6 +275,70 @@ struct JsStreamConfig {
     NatsMetadata metadata; ///< User-defined key/value metadata (NATS 2.10)
 };
 
+struct JsLostStreamData {
+    QList<uint64_t> msgs; ///< Sequence numbers of lost messages
+    uint64_t bytes = 0;   ///< Total bytes of lost messages
+};
+
+struct JsStreamStateSubject {
+    QString subject;
+    uint64_t msgs = 0; ///< Number of messages for this subject
+};
+
+struct JsStreamState {
+    uint64_t msgs = 0;     ///< Number of messages in the stream
+    uint64_t bytes = 0;    ///< Total size of messages in bytes
+    uint64_t firstSeq = 0; ///< Sequence number of the first message
+    int64_t firstTime = 0; ///< UTC nanoseconds since epoch of the first message
+    uint64_t lastSeq = 0;  ///< Sequence number of the last message
+    int64_t lastTime = 0;  ///< UTC nanoseconds since epoch of the last message
+    int64_t numSubjects = 0; ///< Not sure why this signed, but it's like that in nats.c
+    std::optional<QList<JsStreamStateSubject>> subjects; ///< Per-subject message counts; only populated if SubjectsFilter was set in jsOptions
+    uint64_t numDeleted = 0;
+    QList<uint64_t> deleted; ///< Sequence numbers of deleted messages; only populated if deletedDetails was set in jsOptions
+    std::optional<JsLostStreamData> lost;
+    int64_t consumers = 0; ///< Number of consumers on this stream. Not sure why this signed, but it's like that in nats.c
+};
+
+struct JsPeerInfo {
+    QString name;
+    bool current = false;  ///< Whether this peer is up to date
+    bool offline = false;
+    int64_t active = 0;    ///< Nanoseconds since this peer was last seen
+    uint64_t lag = 0;      ///< Number of uncommitted operations this peer is behind
+};
+
+struct JsClusterInfo {
+    std::optional<QString> name;
+    std::optional<QString> leader;
+    QList<JsPeerInfo> replicas;
+};
+
+struct JsStreamSourceInfo {
+    QString name;
+    std::optional<JsExternalStream> external;
+    uint64_t lag = 0;    ///< Number of messages this source is behind
+    int64_t active = 0;  ///< Nanoseconds since this source was last seen
+    std::optional<QString> filterSubject;
+    QList<JsSubjectTransformConfig> subjectTransforms;
+};
+
+struct JsStreamAlternate {
+    QString name;
+    QString domain;
+    QString cluster;
+};
+
+struct JsStreamInfo {
+    JsStreamConfig config;
+    int64_t created = 0; ///< UTC nanoseconds since epoch when the stream was created
+    JsStreamState state;
+    std::optional<JsClusterInfo> cluster;
+    std::optional<JsStreamSourceInfo> mirror;
+    QList<JsStreamSourceInfo> sources;
+    QList<JsStreamAlternate> alternates;
+};
+
 struct JsOptionsPublishAsync {
     int64_t maxPending = 0;  ///< Maximum outstanding async publishes inflight at one time (0 = no limit)
     int64_t stallWait = 200; ///< Milliseconds to wait in PublishAsync when MaxPending is reached
