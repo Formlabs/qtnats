@@ -1,0 +1,46 @@
+---
+Language: Cpp
+BasedOnStyle: Chromium
+AccessModifierOffset: -4
+AlignOperands: false
+AllowShortFunctionsOnASingleLine: All
+AllowAllConstructorInitializersOnNextLine: false
+BreakConstructorInitializers: "BeforeComma"
+BreakBeforeBinaryOperators: NonAssignment
+BreakBeforeBraces: "Attach"
+SortIncludes: CaseInsensitive
+CommentPragmas:  '^\\.+'
+CompactNamespaces: true
+ColumnLimit: 120
+FixNamespaceComments: true
+IndentCaseLabels: false
+IndentWidth: 4
+MaxEmptyLinesToKeep: 2
+PointerAlignment: "Left"
+SpacesInAngles: 'false'
+SpacesBeforeTrailingComments: 1
+TabWidth: 4
+UseTab: Never
+WhitespaceSensitiveMacros: [ "Q_PROPERTY" ]
+
+# This group of settings ensures that parameters/arguments are split across multiple lines if they don't fit on a single
+# line.
+AlignAfterOpenBracket: BlockIndent
+BinPackArguments: false
+BinPackParameters: false
+
+# This penalty helps prevent the return type from being put on its own line - which isn't terrible, but if it's not the
+# norm, it really stands out. The added benefit of this is that it helps `AlignAfterOpenBracket` work properly.
+#
+# ```
+#     // no penalty
+#     [[nodiscard]] unique_ptr<Task::I_TaskT<PrintabilityResult>>
+#     makePrintabilityTask(const SceneAndKnobs& sceneAndKnobs, const Core::ModelId& modelId)
+#
+#     // with penalty
+#     [[nodiscard]] unique_ptr<Task::I_TaskT<PrintabilityResult>> makePrintabilityTask(
+#         const SceneAndKnobs& sceneAndKnobs,
+#         const Core::ModelId& modelId
+#     )
+# ```
+PenaltyReturnTypeOnItsOwnLine: 1000

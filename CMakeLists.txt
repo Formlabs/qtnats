@@ -5,7 +5,7 @@ project(QtNatsProject VERSION 0.1.0)
 include(GenerateExportHeader)
 include(GNUInstallDirs)
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_AUTOMOC ON)
 
@@ -48,6 +48,7 @@ find_package(Qt6 REQUIRED COMPONENTS Core)
 # ------------- qtnats library ----------------------
 add_library(qtnats
     STATIC
+        src/qtnats/qtnats_p.cpp
         src/qtnats/jetstream.cpp
         src/qtnats/qtnats.cpp
         src/qtnats/qtnats.h

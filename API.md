@@ -4,7 +4,9 @@
 #include <qtnats.h>
 ```
 All definitions are contained in the `QtNats` namespace.
-All subjects, queue groups, stream and consumer names can use only Latin-1, so `QByteArray` is used for arguments instead of `QString`.
+Subjects, queue groups, stream, and consumer names should be provided as `QString`s; these are converted to UTF-8
+before they are passed to nats.c, in accordance with the [NATS Client Protocol](https://docs.nats.io/reference/reference-protocols/nats-protocol).
+
 ## Client Class
 Represents a connection to a NATS server/cluster. All timeout values are in milliseconds.
 
@@ -17,11 +19,11 @@ void connectToServer(const Options& opts);
 void connectToServer(const QUrl& address);
 void close() noexcept;
 void publish(const Message& msg);
-Message request(const Message& msg, qint64 timeout = 2000);
-QFuture<Message> asyncRequest(const Message& msg, qint64 timeout = 2000);
-Subscription* subscribe(const QByteArray& subject);
-Subscription* subscribe(const QByteArray& subject, const QByteArray& queueGroup);
-bool ping(qint64 timeout = 10000) noexcept;
+Message request(const Message& msg, int64_t timeout = 2000);
+QFuture<Message> asyncRequest(const Message& msg, int64_t timeout = 2000);
+Subscription* subscribe(const QString& subject);
+Subscription* subscribe(const QString& subject, const QString& queueGroup);
+bool ping(int64_t timeout = 10000) noexcept;
 QUrl currentServer() const;
 ConnectionStatus status() const;
 QString errorString() const;
@@ -52,20 +54,20 @@ Represents a NATS message.
 ### Public Functions
 ```cpp
 Message() {}
-Message(const QByteArray& in_subject, const QByteArray& in_data);
+Message(const QString& in_subject, const QByteArray& in_data);
 explicit Message(natsMsg* cmsg) noexcept;
 bool isIncoming() const;
 void ack();
-void nack(qint64 delay = -1);
+void nack(int64_t delay = -1);
 void inProgress();
 void terminate();
 ```
 ### Public Members
 ```cpp
-QByteArray subject;
-QByteArray reply;
+QString subject;
+QString reply;
 QByteArray data;
-MessageHeaders headers; //QMultiHash<QByteArray, QByteArray>
+MessageHeaders headers; //QMultiHash<QString, QByteArray>
 ```
 
 ## JetStream Class
@@ -73,12 +75,12 @@ Represents a JetStream context. Created by `Client`.
 ### Public Functions
 ```cpp
 JsPublishAck publish(const Message& msg, const JsPublishOptions& opts);
-JsPublishAck publish(const Message& msg, qint64 timeout = -1);
+JsPublishAck publish(const Message& msg, int64_t timeout = -1);
 void asyncPublish(const Message& msg, const JsPublishOptions& opts);
-void asyncPublish(const Message& msg, qint64 timeout = -1);
-void waitForPublishCompleted(qint64 timeout = -1);
-Subscription* subscribe(const QByteArray& subject, const QByteArray& stream, const QByteArray& push_consumer);
-PullSubscription* pullSubscribe(const QByteArray& subject, const QByteArray& stream, const QByteArray& pull_consumer);
+void asyncPublish(const Message& msg, int64_t timeout = -1);
+void waitForPublishCompleted(int64_t timeout = -1);
+Subscription* subscribe(const QString& subject, const QString& stream, const QString& push_consumer);
+PullSubscription* pullSubscribe(const QString& subject, const QString& stream, const QString& pull_consumer);
 jsCtx* getJsContext() const;
 ```
 ### Signals
@@ -87,27 +89,27 @@ void errorOccurred(natsStatus error, jsErrCode jsErr, const QString& text, const
 ```
 ## PullSubscription class
 ```cpp
-QList<Message> fetch(int batch = 1, qint64 timeout = 5000);
+QList<Message> fetch(int batch = 1, int64_t timeout = 5000);
 ```
 ## JsPublishOptions Struct
 Options to publish a message to JetStream.
 ### Public Members
 ```cpp
-qint64 timeout
-QByteArray msgID
-QByteArray expectStream
-QByteArray expectLastMessageID
-quint64 expectLastSequence
-quint64 expectLastSubjectSequence
+int64_t timeout
+QString msgID
+QString expectStream
+QString expectLastMessageID
+uint64_t expectLastSequence
+uint64_t expectLastSubjectSequence
 bool expectNoMessage
 ```
 ## JsPublishAck Struct
 JetStream acknowledgment.
 ### Public Members
 ```cpp
-QByteArray stream
-quint64 sequence
-QByteArray domain
+QString stream
+uint64_t sequence
+QString domain
 bool duplicate
 ```
 

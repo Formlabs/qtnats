@@ -1,8 +1,18 @@
-/* Copyright(c) 2021-2022 Petro Kazmirchuk https://github.com/Kazmirchuk
-
-Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.You may obtain a copy of the License at http ://www.apache.org/licenses/LICENSE-2.0
-Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.See the License for the specific language governing permissions and  limitations under the License.
-*/
+/*
+ * Copyright(c) 2021-2022 Petro Kazmirchuk https://github.com/Kazmirchuk
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 #include <qtnats/qtnats.h>
 
@@ -17,15 +27,13 @@ Unless required by applicable law or agreed to in writing, software distributed 
 using namespace std;
 using namespace QtNats;
 
-template<typename T>
-QString enumToString(T value)
-{
+template <typename T>
+QString enumToString(T value) {
     int castValue = static_cast<int>(value);
     return QMetaEnum::fromType<T>().valueToKey(castValue);
 }
 
-class CoreTestCase : public QObject
-{
+class CoreTestCase : public QObject {
     Q_OBJECT
 
     QProcess natsServer;
@@ -39,8 +47,7 @@ private Q_SLOTS:
     void asyncRequest();
 };
 
-void CoreTestCase::initTestCase()
-{
+void CoreTestCase::initTestCase() {
     connect(&natsServer, &QProcess::stateChanged, [](QProcess::ProcessState newState) {
         cout << "nats-server: " << qPrintable(enumToString(newState)) << endl;
     });
@@ -49,14 +56,12 @@ void CoreTestCase::initTestCase()
     natsServer.waitForStarted();
     QTest::qWait(1000);
 }
-void CoreTestCase::cleanupTestCase()
-{
+void CoreTestCase::cleanupTestCase() {
     natsServer.close();
     natsServer.waitForFinished();
 }
 
-void CoreTestCase::subscribe()
-{
+void CoreTestCase::subscribe() {
     try {
         Client c;
 
@@ -68,11 +73,9 @@ void CoreTestCase::subscribe()
         auto sub = c.subscribe("test_subject");
 
         QList<Message> msgList;
-        connect(sub, &Subscription::received, [&msgList](Message message) {
-            msgList += message;
-        });
+        connect(sub, &Subscription::received, [&msgList](Message message) { msgList += message; });
 
-        c.ping(); //ensure the server received SUB
+        c.ping(); // ensure the server received SUB
 
         QProcess natsCli;
         natsCli.start("nats", QStringList() << "publish" << "--count=100" << "test_subject" << "hello");
@@ -84,14 +87,12 @@ void CoreTestCase::subscribe()
             QCOMPARE(m.subject, "test_subject");
             QCOMPARE(m.data, "hello");
         }
-    }
-    catch (const QException& e) {
+    } catch (const QException& e) {
         QFAIL(e.what());
     }
 }
 
-void CoreTestCase::request()
-{
+void CoreTestCase::request() {
     QProcess responder;
     try {
         Client c;
@@ -105,19 +106,19 @@ void CoreTestCase::request()
             Message response = c.request(Message("service", "foo"), 1000);
             QCOMPARE(response.data, "bla");
         }
-    }
-    catch (const QException& e) {
+    } catch (const QException& e) {
         QFAIL(e.what());
     }
     responder.close();
     responder.waitForFinished();
 }
 
-void CoreTestCase::asyncRequest()
-{
+void CoreTestCase::asyncRequest() {
     QProcess responder;
     try {
-        responder.start("nats", QStringList() << "reply" << "service" << "bla"); // can't use --count because sometimes NATS CLI exits before flushing its reply (?!)
+        responder.start(
+            "nats", QStringList() << "reply" << "service" << "bla"
+        ); // can't use --count because sometimes NATS CLI exits before flushing its reply (?!)
         responder.waitForStarted();
         QTest::qWait(1000);
 
@@ -136,8 +137,7 @@ void CoreTestCase::asyncRequest()
             QCOMPARE(f.isFinished(), true);
             QCOMPARE(f.result().data, "bla");
         }
-    }
-    catch (const QException& e) {
+    } catch (const QException& e) {
         QFAIL(e.what());
     }
     responder.close();
