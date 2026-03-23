@@ -67,6 +67,7 @@ void CoreTestCase::cleanupTestCase() {
     }
 }
 
+/// Verifies that a subscriber receives all messages published to a subject by a separate client.
 void CoreTestCase::subscribe() {
     try {
         Client subscriber;
@@ -101,6 +102,7 @@ void CoreTestCase::subscribe() {
     }
 }
 
+/// Verifies synchronous request-reply: a responder client echoes back a fixed payload for each request.
 void CoreTestCase::request() {
     try {
         // Set up a responder using a second QtNats client
@@ -124,6 +126,7 @@ void CoreTestCase::request() {
     }
 }
 
+/// Verifies asynchronous request-reply: 100 concurrent async requests all resolve with the expected payload.
 void CoreTestCase::asyncRequest() {
     try {
         // Set up a responder using a second QtNats client

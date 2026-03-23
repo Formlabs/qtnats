@@ -97,6 +97,8 @@ void JetStreamTestCase::cleanupTestCase() {
     }
 }
 
+/// Verifies stream CRUD: create a stream and inspect its config, update maxMsgs, delete it, and
+/// confirm that deleting a non-existent stream returns false.
 void JetStreamTestCase::streamManagement() {
     try {
         // Create
@@ -129,6 +131,8 @@ void JetStreamTestCase::streamManagement() {
     }
 }
 
+/// Verifies the discard-old retention policy: a stream with maxMsgs=5 evicts the oldest messages
+/// when more than 5 are published, leaving only the most recent 5 retrievable.
 void JetStreamTestCase::maxMsgsRetention() {
     try {
         // Create a stream that retains at most 5 messages
@@ -173,6 +177,8 @@ void JetStreamTestCase::maxMsgsRetention() {
     }
 }
 
+/// Verifies JetStream publish: a synchronous publish returns an ack with the correct stream name
+/// and a positive sequence number, and five async publishes complete without error.
 void JetStreamTestCase::publish() {
     try {
         connect(js, &JetStream::errorOccurred, [](natsStatus, jsErrCode, const QString& text, Message) {
@@ -194,6 +200,8 @@ void JetStreamTestCase::publish() {
     }
 }
 
+/// Verifies pull-based consumption: programmatically creates a durable pull consumer, publishes 10
+/// messages with headers, fetches them in a single batch, and confirms data, subject, and headers.
 void JetStreamTestCase::pullSubscribe() {
     try {
         // Create consumer programmatically
@@ -234,6 +242,8 @@ void JetStreamTestCase::pullSubscribe() {
     }
 }
 
+/// Verifies push-based consumption: programmatically creates a durable push consumer with a deliver
+/// subject, subscribes via Qt signal, publishes 10 messages, and confirms all are delivered.
 void JetStreamTestCase::pushSubscribe() {
     try {
         // Create push consumer programmatically
