@@ -73,9 +73,9 @@ private:
     const QByteArray errorText;
 };
 
-// =============================================================================
+// =====================================================================================================================
 // Data types  (analogous to nats.h types)
-// =============================================================================
+// =====================================================================================================================
 #pragma region Data types
 
 enum class ConnectionStatus {
@@ -502,9 +502,12 @@ struct QTNATS_EXPORT Options {
 
 #pragma endregion
 
-// =============================================================================
-// Classes
-// =============================================================================
+// =====================================================================================================================
+// Classes.
+// Owning classes are for when the lifetime of an underlying resource must be managed.
+// Data structs are for simple data containers that don't manage any resources and can be freely copied.
+// Both are returned from calls to the Client.
+// =====================================================================================================================
 #pragma region Classes
 
 class Subscription;
