@@ -55,13 +55,13 @@ NatsMetadata fromC(const natsMetadata& meta) {
 JsExternalStream fromC(const jsExternalStream& ext) {
     JsExternalStream result;
     result.apiPrefix = QString::fromUtf8(ext.APIPrefix);
-    result.deliverPrefix = ext.DeliverPrefix ? std::optional(QString::fromUtf8(ext.DeliverPrefix)) : std::nullopt;
+    result.deliverPrefix = toOptionalQString(ext.DeliverPrefix);
     return result;
 }
 
 JsSubjectTransformConfig fromC(const jsSubjectTransformConfig& st) {
     JsSubjectTransformConfig result;
-    result.source = st.Source ? std::optional(QString::fromUtf8(st.Source)) : std::nullopt;
+    result.source = toOptionalQString(st.Source);
     result.destination = QString::fromUtf8(st.Destination);
     return result;
 }
@@ -77,19 +77,18 @@ JsStreamSource fromC(const jsStreamSource& src) {
     JsStreamSource result;
     result.name = QString::fromUtf8(src.Name);
     result.optStartSeq = src.OptStartSeq;
-    result.optStartTime = src.OptStartTime > 0 ? std::optional(NatsTimePoint{NatsDuration{src.OptStartTime}}) : std::nullopt;
-    result.filterSubject = src.FilterSubject ? std::optional(QString::fromUtf8(src.FilterSubject)) : std::nullopt;
+    result.optStartTime = toOptionalTimePoint(src.OptStartTime);
+    result.filterSubject = toOptionalQString(src.FilterSubject);
     result.external = src.External ? std::optional(fromC(*src.External)) : std::nullopt;
-    result.domain = src.Domain ? std::optional(QString::fromUtf8(src.Domain)) : std::nullopt;
+    result.domain = toOptionalQString(src.Domain);
     return result;
 }
 
 JsPlacement fromC(const jsPlacement& p) {
     JsPlacement result;
     result.cluster = QString::fromUtf8(p.Cluster);
-    for (int i = 0; i < p.TagsLen; i++) {
+    for (int i = 0; i < p.TagsLen; i++)
         result.tags.append(QString::fromUtf8(p.Tags[i]));
-    }
     return result;
 }
 
@@ -104,7 +103,7 @@ JsRePublish fromC(const jsRePublish& rp) {
 JsStreamConfig fromC(const jsStreamConfig& cfg) {
     JsStreamConfig result;
     result.name = QString::fromUtf8(cfg.Name);
-    result.description = cfg.Description ? std::optional(QString::fromUtf8(cfg.Description)) : std::nullopt;
+    result.description = toOptionalQString(cfg.Description);
     for (int i = 0; i < cfg.SubjectsLen; i++)
         result.subjects.append(QString::fromUtf8(cfg.Subjects[i]));
     result.retention = static_cast<JsRetentionPolicy>(cfg.Retention);
@@ -126,7 +125,7 @@ JsStreamConfig fromC(const jsStreamConfig& cfg) {
     result.replicas = cfg.Replicas;
     result.noAck = cfg.NoAck;
     result.duplicates = NatsDuration{cfg.Duplicates};
-    result.templateOwner = cfg.Template ? std::optional(QString::fromUtf8(cfg.Template)) : std::nullopt;
+    result.templateOwner = toOptionalQString(cfg.Template);
     result.placement = cfg.Placement ? std::optional(fromC(*cfg.Placement)) : std::nullopt;
     result.mirror = cfg.Mirror ? std::optional(fromC(*cfg.Mirror)) : std::nullopt;
     for (int i = 0; i < cfg.SourcesLen; i++)
@@ -175,9 +174,9 @@ JsStreamState fromC(const jsStreamState& state) {
     result.msgs = state.Msgs;
     result.bytes = state.Bytes;
     result.firstSeq = state.FirstSeq;
-    result.firstTime = NatsTimePoint{NatsDuration{state.FirstTime}};
+    result.firstTime = toTimePoint(state.FirstTime);
     result.lastSeq = state.LastSeq;
-    result.lastTime = NatsTimePoint{NatsDuration{state.LastTime}};
+    result.lastTime = toTimePoint(state.LastTime);
     result.numSubjects = state.NumSubjects;
     result.subjects = state.Subjects ? std::optional(fromC(*state.Subjects)) : std::nullopt;
     result.numDeleted = state.NumDeleted;
@@ -201,8 +200,8 @@ JsPeerInfo fromC(const jsPeerInfo& peer) {
 
 JsClusterInfo fromC(const jsClusterInfo& cluster) {
     JsClusterInfo result;
-    result.name = cluster.Name ? std::optional(QString::fromUtf8(cluster.Name)) : std::nullopt;
-    result.leader = cluster.Leader ? std::optional(QString::fromUtf8(cluster.Leader)) : std::nullopt;
+    result.name = toOptionalQString(cluster.Name);
+    result.leader = toOptionalQString(cluster.Leader);
     for (int i = 0; i < cluster.ReplicasLen; i++) {
         result.replicas.append(fromC(*cluster.Replicas[i]));
     }
@@ -215,7 +214,7 @@ JsStreamSourceInfo fromC(const jsStreamSourceInfo& src) {
     result.external = src.External ? std::optional(fromC(*src.External)) : std::nullopt;
     result.lag = src.Lag;
     result.active = NatsDuration{src.Active};
-    result.filterSubject = src.FilterSubject ? std::optional(QString::fromUtf8(src.FilterSubject)) : std::nullopt;
+    result.filterSubject = toOptionalQString(src.FilterSubject);
     for (int i = 0; i < src.SubjectTransformsLen; i++) {
         result.subjectTransforms.append(fromC(src.SubjectTransforms[i]));
     }
@@ -233,7 +232,7 @@ JsStreamAlternate fromC(const jsStreamAlternate& alt) {
 JsStreamInfo fromC(const JsStreamInfoPtr& info) {
     JsStreamInfo result;
     result.config = fromC(*info->Config);
-    result.created = NatsTimePoint{NatsDuration{info->Created}};
+    result.created = toTimePoint(info->Created);
     result.state = fromC(info->State);
     result.cluster = info->Cluster ? std::optional(fromC(*info->Cluster)) : std::nullopt;
     result.mirror = info->Mirror ? std::optional(fromC(*info->Mirror)) : std::nullopt;
@@ -249,36 +248,34 @@ JsStreamInfo fromC(const JsStreamInfoPtr& info) {
 JsConsumerPauseResponse fromC(const JsConsumerPauseResponsePtr& resp) {
     JsConsumerPauseResponse result;
     result.paused = resp->Paused;
-    result.pauseUntil = resp->PauseUntil > 0 ? std::optional(NatsTimePoint{NatsDuration{resp->PauseUntil}}) : std::nullopt;
+    result.pauseUntil = toOptionalTimePoint(resp->PauseUntil);
     result.pauseRemaining = NatsDuration{resp->PauseRemaining};
     return result;
 }
 
 JsConsumerConfig fromC(const jsConsumerConfig& cfg) {
     JsConsumerConfig result;
-    result.name = cfg.Name ? std::optional(QString::fromUtf8(cfg.Name)) : std::nullopt;
-    result.durable = cfg.Durable ? std::optional(QString::fromUtf8(cfg.Durable)) : std::nullopt;
-    result.description = cfg.Description ? std::optional(QString::fromUtf8(cfg.Description)) : std::nullopt;
+    result.name = toOptionalQString(cfg.Name);
+    result.durable = toOptionalQString(cfg.Durable);
+    result.description = toOptionalQString(cfg.Description);
     // Enums are set to -1 when not specified (see convertAndHandle(JsConsumerConfig))
     result.deliverPolicy = static_cast<int>(cfg.DeliverPolicy) == -1
-                               ? std::nullopt
-                               : std::optional(static_cast<JsDeliverPolicy>(cfg.DeliverPolicy));
-    result.ackPolicy = static_cast<int>(cfg.AckPolicy) == -1
-                           ? std::nullopt
-                           : std::optional(static_cast<JsAckPolicy>(cfg.AckPolicy));
+        ? std::nullopt
+        : std::optional(static_cast<JsDeliverPolicy>(cfg.DeliverPolicy));
+    result.ackPolicy =
+        static_cast<int>(cfg.AckPolicy) == -1 ? std::nullopt : std::optional(static_cast<JsAckPolicy>(cfg.AckPolicy));
     result.replayPolicy = static_cast<int>(cfg.ReplayPolicy) == -1
-                              ? std::nullopt
-                              : std::optional(static_cast<JsReplayPolicy>(cfg.ReplayPolicy));
+        ? std::nullopt
+        : std::optional(static_cast<JsReplayPolicy>(cfg.ReplayPolicy));
     result.optStartSeq = cfg.OptStartSeq;
-    result.optStartTime = cfg.OptStartTime > 0 ? std::optional(NatsTimePoint{NatsDuration{cfg.OptStartTime}}) : std::nullopt;
+    result.optStartTime = toOptionalTimePoint(cfg.OptStartTime);
     result.ackWait = NatsDuration{cfg.AckWait};
     result.maxDeliver = cfg.MaxDeliver;
     for (int i = 0; i < cfg.BackOffLen; ++i)
         result.backOff.append(NatsDuration{cfg.BackOff[i]});
-    result.filterSubject = cfg.FilterSubject ? std::optional(QString::fromUtf8(cfg.FilterSubject)) : std::nullopt;
+    result.filterSubject = toOptionalQString(cfg.FilterSubject);
     result.rateLimit = cfg.RateLimit > 0 ? std::optional(cfg.RateLimit) : std::nullopt;
-    result.sampleFrequency =
-        cfg.SampleFrequency ? std::optional(QString::fromUtf8(cfg.SampleFrequency)) : std::nullopt;
+    result.sampleFrequency = toOptionalQString(cfg.SampleFrequency);
     result.maxWaiting = cfg.MaxWaiting;
     result.maxAckPending = cfg.MaxAckPending;
     result.flowControl = cfg.FlowControl;
@@ -287,15 +284,15 @@ JsConsumerConfig fromC(const jsConsumerConfig& cfg) {
     result.maxRequestBatch = cfg.MaxRequestBatch;
     result.maxRequestExpires = NatsDuration{cfg.MaxRequestExpires};
     result.maxRequestMaxBytes = cfg.MaxRequestMaxBytes;
-    result.deliverSubject = cfg.DeliverSubject ? std::optional(QString::fromUtf8(cfg.DeliverSubject)) : std::nullopt;
-    result.deliverGroup = cfg.DeliverGroup ? std::optional(QString::fromUtf8(cfg.DeliverGroup)) : std::nullopt;
+    result.deliverSubject = toOptionalQString(cfg.DeliverSubject);
+    result.deliverGroup = toOptionalQString(cfg.DeliverGroup);
     result.inactiveThreshold = NatsDuration{cfg.InactiveThreshold};
     result.replicas = cfg.Replicas;
     result.memoryStorage = cfg.MemoryStorage;
     for (int i = 0; i < cfg.FilterSubjectsLen; ++i)
         result.filterSubjects.append(QString::fromUtf8(cfg.FilterSubjects[i]));
     result.metadata = fromC(cfg.Metadata);
-    result.pauseUntil = cfg.PauseUntil > 0 ? std::optional(NatsTimePoint{NatsDuration{cfg.PauseUntil}}) : std::nullopt;
+    result.pauseUntil = toOptionalTimePoint(cfg.PauseUntil);
     return result;
 }
 
@@ -310,7 +307,7 @@ JsSequenceInfo fromC(const jsSequenceInfo& seq) {
     JsSequenceInfo result;
     result.consumer = seq.Consumer;
     result.stream = seq.Stream;
-    result.last = NatsTimePoint{NatsDuration{seq.Last}};
+    result.last = toTimePoint(seq.Last);
     return result;
 }
 
@@ -318,7 +315,7 @@ JsConsumerInfo fromC(const JsConsumerInfoPtr& info) {
     JsConsumerInfo result;
     result.stream = QString::fromUtf8(info->Stream);
     result.name = QString::fromUtf8(info->Name);
-    result.created = NatsTimePoint{NatsDuration{info->Created}};
+    result.created = toTimePoint(info->Created);
     result.config = fromC(*info->Config);
     result.delivered = fromC(info->Delivered);
     result.ackFloor = fromC(info->AckFloor);

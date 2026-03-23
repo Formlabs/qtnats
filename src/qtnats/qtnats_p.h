@@ -90,6 +90,14 @@ auto withOptional(const std::optional<T>& opt, Setter&& setter, Cont&& cont) {
     });
 }
 
+// General helpers for conversions
+inline std::optional<QString> toOptionalQString(const char* s) {
+    return s ? std::optional(QString::fromUtf8(s)) : std::nullopt;
+}
+inline NatsTimePoint toTimePoint(const int64_t ns) { return NatsTimePoint{NatsDuration{ns}}; }
+inline std::optional<NatsTimePoint> toOptionalTimePoint(const int64_t ns) {
+    return ns > 0 ? std::optional(NatsTimePoint{NatsDuration{ns}}) : std::nullopt;
+};
 
 // We wrap raw pointers in unique_ptr with struct deleters to ensure proper cleanup
 // and allow construction without passing the deleter explicitly.
