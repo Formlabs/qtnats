@@ -69,8 +69,30 @@ void JetStreamTestCase::initTestCase() {
     natsServer.waitForStarted();
     QTest::qWait(1000);
 
-    natsCli.start("nats", QStringList() << "stream" << "add" << "--config=stream_config.json");
-    natsCli.waitForFinished();
+    Client c;
+    c.connectToServer(QUrl("nats://localhost:4222"));
+    const JetStream* js = c.jetStream();
+
+    JsStreamConfig config;
+    config.name = "MY_STREAM";
+    config.subjects = {"test.*"};
+    config.retention = JsRetentionPolicy::Limits;
+    config.discard = JsDiscardPolicy::Old;
+    config.storage = JsStorageType::Memory;
+    config.maxConsumers = std::nullopt;
+    config.maxMsgs = std::nullopt;
+    config.maxBytes = std::nullopt;
+    config.maxAge = std::nullopt;
+    config.maxMsgsPerSubject = std::nullopt;
+    config.maxMsgSize = std::nullopt;
+
+    const JsStreamInfo jsStreamInfo = c.addStream(js, config);
+    QVERIFY(jsStreamInfo.config.name == config.name);
+
+    natsCli.setProcessChannelMode(QProcess::ForwardedChannels);
+    natsCli.start("nats", QStringList() << "stream" << "info" << config.name);
+    QVERIFY2(natsCli.waitForFinished(), qPrintable(natsCli.errorString()));
+    QVERIFY2(natsCli.exitCode() == 0, "nats CLI failed (see output above)");
 }
 
 void JetStreamTestCase::cleanupTestCase() {
