@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <list>
 #include <type_traits>
 
 #include "qtnats.h"
