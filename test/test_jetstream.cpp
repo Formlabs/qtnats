@@ -45,6 +45,7 @@ private Q_SLOTS:
     void cleanupTestCase();
 
     void streamManagement();
+    void maxMsgsRetention();
     void publish();
     void pullSubscribe();
     void pushSubscribe();
@@ -123,6 +124,50 @@ void JetStreamTestCase::streamManagement() {
 
         // Delete non-existent returns false
         QVERIFY(!js->deleteStream("MGMT_STREAM"));
+    } catch (const QException& e) {
+        QFAIL(e.what());
+    }
+}
+
+void JetStreamTestCase::maxMsgsRetention() {
+    try {
+        // Create a stream that retains at most 5 messages
+        auto info = js->addStream(JsStreamConfig{
+            .name = "RETENTION_STREAM",
+            .subjects = {"retain.>"},
+            .storage = JsStorageType::Memory,
+            .maxMsgs = 5,
+        });
+        QCOMPARE(info.config.maxMsgs, 5);
+
+        // Create a consumer so we can inspect what's in the stream
+        js->addConsumer(
+            "RETENTION_STREAM",
+            JsConsumerConfig{
+                .durable = "RETENTION_CONSUMER",
+                .ackPolicy = JsAckPolicy::Explicit,
+                .filterSubject = "retain.data",
+            }
+        );
+
+        // Publish 10 messages — the first 5 should be evicted
+        for (int i = 0; i < 10; i++) {
+            js->publish(Message("retain.data", QByteArray::number(i)), {});
+        }
+
+        // Fetch all available messages — should be exactly the last 5
+        auto sub = js->pullSubscribe("retain.data", "RETENTION_STREAM", "RETENTION_CONSUMER");
+        auto msgList = sub->fetch(10, 2000);
+
+        QCOMPARE(msgList.size(), 5);
+        for (int i = 0; i < 5; i++) {
+            QCOMPARE(msgList[i].data, QByteArray::number(i + 5));
+            msgList[i].ack();
+        }
+
+        // Cleanup
+        QVERIFY(js->deleteConsumer("RETENTION_STREAM", "RETENTION_CONSUMER"));
+        QVERIFY(js->deleteStream("RETENTION_STREAM"));
     } catch (const QException& e) {
         QFAIL(e.what());
     }
