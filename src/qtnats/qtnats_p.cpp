@@ -87,8 +87,10 @@ JsStreamSource fromC(const jsStreamSource& src) {
 JsPlacement fromC(const jsPlacement& p) {
     JsPlacement result;
     result.cluster = QString::fromUtf8(p.Cluster);
-    for (int i = 0; i < p.TagsLen; i++)
+    result.tags.reserve(p.TagsLen);
+    for (int i = 0; i < p.TagsLen; i++) {
         result.tags.append(QString::fromUtf8(p.Tags[i]));
+    }
     return result;
 }
 
@@ -104,8 +106,10 @@ JsStreamConfig fromC(const jsStreamConfig& cfg) {
     JsStreamConfig result;
     result.name = QString::fromUtf8(cfg.Name);
     result.description = toOptionalQString(cfg.Description);
-    for (int i = 0; i < cfg.SubjectsLen; i++)
+    result.subjects.reserve(cfg.SubjectsLen);
+    for (int i = 0; i < cfg.SubjectsLen; i++) {
         result.subjects.append(QString::fromUtf8(cfg.Subjects[i]));
+    }
     result.retention = static_cast<JsRetentionPolicy>(cfg.Retention);
     result.discard = static_cast<JsDiscardPolicy>(cfg.Discard);
     result.storage = static_cast<JsStorageType>(cfg.Storage);
@@ -128,8 +132,10 @@ JsStreamConfig fromC(const jsStreamConfig& cfg) {
     result.templateOwner = toOptionalQString(cfg.Template);
     result.placement = cfg.Placement ? std::optional(fromC(*cfg.Placement)) : std::nullopt;
     result.mirror = cfg.Mirror ? std::optional(fromC(*cfg.Mirror)) : std::nullopt;
-    for (int i = 0; i < cfg.SourcesLen; i++)
+    result.sources.reserve(cfg.SourcesLen);
+    for (int i = 0; i < cfg.SourcesLen; i++) {
         result.sources.append(fromC(*cfg.Sources[i]));
+    }
     result.sealed = cfg.Sealed;
     result.denyDelete = cfg.DenyDelete;
     result.denyPurge = cfg.DenyPurge;
@@ -147,6 +153,7 @@ JsStreamConfig fromC(const jsStreamConfig& cfg) {
 
 JsLostStreamData fromC(const jsLostStreamData& lost) {
     JsLostStreamData result;
+    result.msgs.reserve(lost.MsgsLen);
     for (int i = 0; i < lost.MsgsLen; i++) {
         result.msgs.append(lost.Msgs[i]);
     }
@@ -164,8 +171,9 @@ JsStreamStateSubject fromC(const jsStreamStateSubject& subj) {
 QList<JsStreamStateSubject> fromC(const jsStreamStateSubjects& subjs) {
     QList<JsStreamStateSubject> result;
     result.reserve(subjs.Count);
-    for (int i = 0; i < subjs.Count; i++)
+    for (int i = 0; i < subjs.Count; i++) {
         result.append(fromC(subjs.List[i]));
+    }
     return result;
 }
 
@@ -180,6 +188,7 @@ JsStreamState fromC(const jsStreamState& state) {
     result.numSubjects = state.NumSubjects;
     result.subjects = state.Subjects ? std::optional(fromC(*state.Subjects)) : std::nullopt;
     result.numDeleted = state.NumDeleted;
+    result.deleted.reserve(state.DeletedLen);
     for (int i = 0; i < state.DeletedLen; i++) {
         result.deleted.append(state.Deleted[i]);
     }
@@ -202,6 +211,7 @@ JsClusterInfo fromC(const jsClusterInfo& cluster) {
     JsClusterInfo result;
     result.name = toOptionalQString(cluster.Name);
     result.leader = toOptionalQString(cluster.Leader);
+    result.replicas.reserve(cluster.ReplicasLen);
     for (int i = 0; i < cluster.ReplicasLen; i++) {
         result.replicas.append(fromC(*cluster.Replicas[i]));
     }
@@ -215,6 +225,7 @@ JsStreamSourceInfo fromC(const jsStreamSourceInfo& src) {
     result.lag = src.Lag;
     result.active = NatsDuration{src.Active};
     result.filterSubject = toOptionalQString(src.FilterSubject);
+    result.subjectTransforms.reserve(src.SubjectTransformsLen);
     for (int i = 0; i < src.SubjectTransformsLen; i++) {
         result.subjectTransforms.append(fromC(src.SubjectTransforms[i]));
     }
@@ -236,9 +247,11 @@ JsStreamInfo fromC(const JsStreamInfoPtr& info) {
     result.state = fromC(info->State);
     result.cluster = info->Cluster ? std::optional(fromC(*info->Cluster)) : std::nullopt;
     result.mirror = info->Mirror ? std::optional(fromC(*info->Mirror)) : std::nullopt;
+    result.sources.reserve(info->SourcesLen);
     for (int i = 0; i < info->SourcesLen; i++) {
         result.sources.append(fromC(*info->Sources[i]));
     }
+    result.alternates.reserve(info->AlternatesLen);
     for (int i = 0; i < info->AlternatesLen; i++) {
         result.alternates.append(fromC(*info->Alternates[i]));
     }
@@ -271,8 +284,10 @@ JsConsumerConfig fromC(const jsConsumerConfig& cfg) {
     result.optStartTime = toOptionalTimePoint(cfg.OptStartTime);
     result.ackWait = NatsDuration{cfg.AckWait};
     result.maxDeliver = cfg.MaxDeliver;
-    for (int i = 0; i < cfg.BackOffLen; ++i)
+    result.backOff.reserve(cfg.BackOffLen);
+    for (int i = 0; i < cfg.BackOffLen; ++i) {
         result.backOff.append(NatsDuration{cfg.BackOff[i]});
+    }
     result.filterSubject = toOptionalQString(cfg.FilterSubject);
     result.rateLimit = cfg.RateLimit > 0 ? std::optional(cfg.RateLimit) : std::nullopt;
     result.sampleFrequency = toOptionalQString(cfg.SampleFrequency);
@@ -289,8 +304,10 @@ JsConsumerConfig fromC(const jsConsumerConfig& cfg) {
     result.inactiveThreshold = NatsDuration{cfg.InactiveThreshold};
     result.replicas = cfg.Replicas;
     result.memoryStorage = cfg.MemoryStorage;
-    for (int i = 0; i < cfg.FilterSubjectsLen; ++i)
+    result.filterSubjects.reserve(cfg.FilterSubjectsLen);
+    for (int i = 0; i < cfg.FilterSubjectsLen; ++i) {
         result.filterSubjects.append(QString::fromUtf8(cfg.FilterSubjects[i]));
+    }
     result.metadata = fromC(cfg.Metadata);
     result.pauseUntil = toOptionalTimePoint(cfg.PauseUntil);
     return result;
