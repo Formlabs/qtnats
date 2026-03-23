@@ -554,6 +554,14 @@ public:
 
     static void deleteStream(const JetStream* js, const QString& stream);
 
+    static JsConsumerInfo addConsumer(const JetStream* js, const QString& stream, const JsConsumerConfig& config);
+
+    static JsConsumerInfo updateConsumer(const JetStream* js, const QString& stream, const JsConsumerConfig& config);
+
+    static JsConsumerInfo getConsumerInfo(const JetStream* js, const QString& stream, const QString& consumer);
+
+    static void deleteConsumer(const JetStream* js, const QString& stream, const QString& consumer);
+
     natsConnection* getNatsConnection() const { return m_conn; }
 
 Q_SIGNALS:

@@ -76,6 +76,48 @@ void Client::deleteStream(const JetStream* js, const QString& stream) {
     checkJsError(s, jsErr);
 }
 
+JsConsumerInfo Client::addConsumer(const JetStream* js, const QString& stream, const JsConsumerConfig& config) {
+    return convertAndHandle(config, [&](jsConsumerConfig& jsConfig) {
+        jsConsumerInfo* ci;
+        jsErrCode jsErr;
+        // We'll just always use the options used to set up the JetStream
+        const natsStatus s =
+            js_AddConsumer(&ci, js->getJsContext(), stream.toUtf8().constData(), &jsConfig, nullptr, &jsErr);
+        checkJsError(s, jsErr);
+        return fromC(JsConsumerInfoPtr(ci));
+    });
+}
+
+JsConsumerInfo Client::updateConsumer(const JetStream* js, const QString& stream, const JsConsumerConfig& config) {
+    return convertAndHandle(config, [&](jsConsumerConfig& jsConfig) {
+        jsConsumerInfo* ci;
+        jsErrCode jsErr;
+        // We'll just always use the options used to set up the JetStream
+        const natsStatus s =
+            js_UpdateConsumer(&ci, js->getJsContext(), stream.toUtf8().constData(), &jsConfig, nullptr, &jsErr);
+        checkJsError(s, jsErr);
+        return fromC(JsConsumerInfoPtr(ci));
+    });
+}
+
+JsConsumerInfo Client::getConsumerInfo(const JetStream* js, const QString& stream, const QString& consumer) {
+    jsConsumerInfo* ci;
+    jsErrCode jsErr;
+    const natsStatus s = js_GetConsumerInfo(
+        &ci, js->getJsContext(), stream.toUtf8().constData(), consumer.toUtf8().constData(), nullptr, &jsErr
+    );
+    checkJsError(s, jsErr);
+    return fromC(JsConsumerInfoPtr(ci));
+}
+
+void Client::deleteConsumer(const JetStream* js, const QString& stream, const QString& consumer) {
+    jsErrCode jsErr;
+    const natsStatus s = js_DeleteConsumer(
+        js->getJsContext(), stream.toUtf8().constData(), consumer.toUtf8().constData(), nullptr, &jsErr
+    );
+    checkJsError(s, jsErr);
+}
+
 void Message::ack() const {
     jsErrCode jsErr;
     const natsStatus s = natsMsg_AckSync(m_natsMsg.get(), nullptr, &jsErr);
