@@ -227,7 +227,7 @@ auto convertAndHandle(const Options& opts, F&& handler) -> std::invoke_result_t<
     checkError(natsOptions_SetUserInfo(o, a.add(opts.user), a.add(opts.password)));
     checkError(natsOptions_SetToken(o, a.add(opts.token)));
     checkError(natsOptions_SetNoRandomize(o, !opts.randomize)); // NB! reverted flag
-    checkError(natsOptions_SetTimeout(o, opts.timeout));
+    checkError(natsOptions_SetTimeout(o, opts.timeout.count()));
     checkError(natsOptions_SetName(o, a.add(opts.name)));
 
     // TLS/mTLS configuration
@@ -283,12 +283,16 @@ auto convertAndHandle(const JsConsumerConfig& c, F&& handler) -> std::invoke_res
     o.DeliverPolicy =
         c.deliverPolicy ? static_cast<jsDeliverPolicy>(*c.deliverPolicy) : static_cast<jsDeliverPolicy>(-1);
     o.OptStartSeq = c.optStartSeq;
-    o.OptStartTime = c.optStartTime;
+    o.OptStartTime = c.optStartTime ? c.optStartTime->time_since_epoch().count() : 0;
     o.AckPolicy = c.ackPolicy ? static_cast<jsAckPolicy>(*c.ackPolicy) : static_cast<jsAckPolicy>(-1);
-    o.AckWait = c.ackWait;
+    o.AckWait = c.ackWait.count();
     o.MaxDeliver = c.maxDeliver;
-    o.BackOff = c.backOff.isEmpty() ? nullptr : const_cast<int64_t*>(c.backOff.constData());
-    o.BackOffLen = static_cast<int>(c.backOff.size());
+    QList<int64_t> backOffNs;
+    backOffNs.reserve(c.backOff.size());
+    for (const auto& d : c.backOff)
+        backOffNs.append(d.count());
+    o.BackOff = backOffNs.isEmpty() ? nullptr : backOffNs.data();
+    o.BackOffLen = static_cast<int>(backOffNs.size());
     o.FilterSubject = a.add(c.filterSubject);
     o.ReplayPolicy = c.replayPolicy ? static_cast<jsReplayPolicy>(*c.replayPolicy) : static_cast<jsReplayPolicy>(-1);
     o.RateLimit = c.rateLimit.value_or(0);
@@ -296,19 +300,19 @@ auto convertAndHandle(const JsConsumerConfig& c, F&& handler) -> std::invoke_res
     o.MaxWaiting = c.maxWaiting;
     o.MaxAckPending = c.maxAckPending;
     o.FlowControl = c.flowControl;
-    o.Heartbeat = c.heartbeat;
+    o.Heartbeat = c.heartbeat.count();
     o.HeadersOnly = c.headersOnly;
     o.MaxRequestBatch = c.maxRequestBatch;
-    o.MaxRequestExpires = c.maxRequestExpires;
+    o.MaxRequestExpires = c.maxRequestExpires.count();
     o.MaxRequestMaxBytes = c.maxRequestMaxBytes;
     o.DeliverSubject = a.add(c.deliverSubject);
     o.DeliverGroup = a.add(c.deliverGroup);
-    o.InactiveThreshold = c.inactiveThreshold;
+    o.InactiveThreshold = c.inactiveThreshold.count();
     o.Replicas = c.replicas;
     o.MemoryStorage = c.memoryStorage;
     o.FilterSubjects = a.add(c.filterSubjects);
     o.FilterSubjectsLen = static_cast<int>(c.filterSubjects.size());
-    o.PauseUntil = c.pauseUntil;
+    o.PauseUntil = c.pauseUntil ? c.pauseUntil->time_since_epoch().count() : 0;
     return convertAndHandle(c.metadata, [&](const natsMetadata& meta) {
         o.Metadata = meta;
         return handler(o);
@@ -325,7 +329,7 @@ auto convertAndHandle(const JsOptionsPublishAsync& opts, F&& handler)
     o.AckHandlerClosure = nullptr;
     o.ErrHandler = nullptr;
     o.ErrHandlerClosure = nullptr;
-    o.StallWait = opts.stallWait;
+    o.StallWait = opts.stallWait.count();
     return handler(o);
 }
 
@@ -334,7 +338,7 @@ auto convertAndHandle(const JsOptionsPullSubscribeAsync& opts, F&& handler)
     -> std::invoke_result_t<F, jsOptionsPullSubscribeAsync&> {
     // No jsOptionsPullSubscribeAsync_Init() — default values are already set in JsOptionsPullSubscribeAsync
     jsOptionsPullSubscribeAsync o = {};
-    o.Timeout = opts.timeout;
+    o.Timeout = opts.timeout.count();
     o.MaxMessages = opts.maxMessages;
     o.MaxBytes = opts.maxBytes;
     o.NoWait = opts.noWait;
@@ -374,7 +378,7 @@ auto convertAndHandle(const JsPublishOptions& opts, F&& handler) -> std::invoke_
     // No jsPubOptions_Init() — default values are already set in JsPublishOptions
     StringArena a;
     jsPubOptions o = {};
-    o.MaxWait = opts.timeout.has_value() ? opts.timeout.value() : 0;
+    o.MaxWait = opts.timeout.has_value() ? opts.timeout->count() : 0;
     o.MsgId = a.add(opts.msgID);
     o.ExpectStream = a.add(opts.expectStream);
     o.ExpectLastMsgId = a.add(opts.expectLastMessageID);
@@ -407,7 +411,7 @@ auto convertAndHandle(const JsOptions& opts, F&& handler) -> std::invoke_result_
                 jsOptions o = {};
                 o.Prefix = a.add(opts.prefix);
                 o.Domain = a.add(opts.domain);
-                o.Wait = opts.timeout;
+                o.Wait = opts.timeout.count();
                 o.PublishAsync = pa;
                 o.PullSubscribeAsync = psa;
                 o.Stream = stream;
@@ -448,7 +452,7 @@ auto convertAndHandle(const JsStreamSource& src, F&& handler) -> std::invoke_res
     jsStreamSource o = {};
     o.Name = a.add(src.name);
     o.OptStartSeq = src.optStartSeq;
-    o.OptStartTime = src.optStartTime;
+    o.OptStartTime = src.optStartTime ? src.optStartTime->time_since_epoch().count() : 0;
     o.FilterSubject = a.add(src.filterSubject);
     o.Domain = a.add(src.domain);
     return withOptional(src.external, [&](jsExternalStream& ext) { o.External = &ext; }, [&] { return handler(o); });
@@ -488,7 +492,7 @@ template <typename F>
 auto convertAndHandle(const JsStreamConsumerLimits& lim, F&& handler)
     -> std::invoke_result_t<F, jsStreamConsumerLimits&> {
     jsStreamConsumerLimits o = {};
-    o.InactiveThreshold = lim.inactiveThreshold;
+    o.InactiveThreshold = lim.inactiveThreshold.count();
     o.MaxAckPending = lim.maxAckPending;
     return handler(o);
 }
@@ -509,7 +513,7 @@ auto convertAndHandle(const JsStreamConfig& cfg, F&& handler) -> std::invoke_res
     o.MaxConsumers = cfg.maxConsumers.has_value() ? static_cast<int64_t>(*cfg.maxConsumers) : -1;
     o.MaxMsgs = cfg.maxMsgs.has_value() ? static_cast<int64_t>(*cfg.maxMsgs) : -1;
     o.MaxBytes = cfg.maxBytes.has_value() ? static_cast<int64_t>(*cfg.maxBytes) : -1;
-    o.MaxAge = cfg.maxAge.has_value() ? static_cast<int64_t>(*cfg.maxAge) : 0;
+    o.MaxAge = cfg.maxAge.has_value() ? cfg.maxAge->count() : 0;
     o.MaxMsgsPerSubject = cfg.maxMsgsPerSubject.has_value() ? static_cast<int64_t>(*cfg.maxMsgsPerSubject) : 0;
     o.MaxMsgSize = cfg.maxMsgSize.has_value() ? static_cast<int32_t>(*cfg.maxMsgSize) : -1;
 
@@ -518,7 +522,7 @@ auto convertAndHandle(const JsStreamConfig& cfg, F&& handler) -> std::invoke_res
     o.Replicas = cfg.replicas;
     o.NoAck = cfg.noAck;
     o.Template = a.add(cfg.templateOwner);
-    o.Duplicates = cfg.duplicates;
+    o.Duplicates = cfg.duplicates.count();
     o.Sealed = cfg.sealed;
     o.DenyDelete = cfg.denyDelete;
     o.DenyPurge = cfg.denyPurge;

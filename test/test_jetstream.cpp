@@ -108,7 +108,7 @@ void JetStreamTestCase::publish() {
         QCOMPARE(ack.stream, "MY_STREAM");
 
         for (int i = 0; i < 5; i++) {
-            js->asyncPublish(Message("test.1", "HI"), {.timeout = 1000});
+            js->asyncPublish(Message("test.1", "HI"), {.timeout = NatsTimeout{1000}});
         }
         js->waitForPublishCompleted();
     } catch (const QException &e) {

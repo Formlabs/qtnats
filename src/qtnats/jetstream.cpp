@@ -118,11 +118,17 @@ void Client::deleteConsumer(const JetStream* js, const QString& stream, const QS
     checkJsError(s, jsErr);
 }
 
-JsConsumerPauseResponse Client::pauseConsumer(const JetStream* js, const QString& stream, const QString& consumer, int64_t pauseUntil) {
+JsConsumerPauseResponse Client::pauseConsumer(const JetStream* js, const QString& stream, const QString& consumer, NatsTimePoint pauseUntil) {
     jsConsumerPauseResponse* resp;
     jsErrCode jsErr;
     const natsStatus s = js_PauseConsumer(
-        &resp, js->getJsContext(), stream.toUtf8().constData(), consumer.toUtf8().constData(), pauseUntil, nullptr, &jsErr
+        &resp,
+        js->getJsContext(),
+        stream.toUtf8().constData(),
+        consumer.toUtf8().constData(),
+        pauseUntil.time_since_epoch().count(),
+        nullptr,
+        &jsErr
     );
     checkJsError(s, jsErr);
     return fromC(JsConsumerPauseResponsePtr(resp));
@@ -150,11 +156,11 @@ void Message::terminate() const { checkError(natsMsg_Term(m_natsMsg.get(), nullp
 
 PullSubscription::~PullSubscription() noexcept { natsSubscription_Destroy(m_sub); }
 
-QList<Message> PullSubscription::fetch(const int batch, const int64_t timeout) const {
+QList<Message> PullSubscription::fetch(const int batch, const NatsTimeout timeout) const {
     // see also https://github.com/nats-io/nats.c/issues/545
     natsMsgList list{nullptr, 0};
     jsErrCode jsErr;
-    const natsStatus s = natsSubscription_Fetch(&list, m_sub, batch, timeout, &jsErr);
+    const natsStatus s = natsSubscription_Fetch(&list, m_sub, batch, timeout.count(), &jsErr);
     checkJsError(s, jsErr);
     QList<Message> result;
     for (int i = 0; i < list.Count; i++) {
@@ -176,7 +182,7 @@ void JetStream::asyncPublish(const Message& msg, const JsPublishOptions& opts) c
     convertAndHandle(opts, [&](jsPubOptions& jsOpts) { doAsyncPublish(msg, &jsOpts); });
 }
 
-void JetStream::waitForPublishCompleted(const std::optional<int64_t> timeout) const {
+void JetStream::waitForPublishCompleted(const std::optional<NatsTimeout> timeout) const {
     natsStatus s = NATS_OK;
 
     if (timeout.has_value()) {

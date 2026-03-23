@@ -68,7 +68,7 @@ JsSubjectTransformConfig fromC(const jsSubjectTransformConfig& st) {
 
 JsStreamConsumerLimits fromC(const jsStreamConsumerLimits& lim) {
     JsStreamConsumerLimits result;
-    result.inactiveThreshold = lim.InactiveThreshold;
+    result.inactiveThreshold = NatsDuration{lim.InactiveThreshold};
     result.maxAckPending = lim.MaxAckPending;
     return result;
 }
@@ -77,7 +77,7 @@ JsStreamSource fromC(const jsStreamSource& src) {
     JsStreamSource result;
     result.name = QString::fromUtf8(src.Name);
     result.optStartSeq = src.OptStartSeq;
-    result.optStartTime = src.OptStartTime;
+    result.optStartTime = src.OptStartTime > 0 ? std::optional(NatsTimePoint{NatsDuration{src.OptStartTime}}) : std::nullopt;
     result.filterSubject = src.FilterSubject ? std::optional(QString::fromUtf8(src.FilterSubject)) : std::nullopt;
     result.external = src.External ? std::optional(fromC(*src.External)) : std::nullopt;
     result.domain = src.Domain ? std::optional(QString::fromUtf8(src.Domain)) : std::nullopt;
@@ -118,14 +118,14 @@ JsStreamConfig fromC(const jsStreamConfig& cfg) {
         cfg.MaxConsumers <= -1 ? std::nullopt : std::optional(static_cast<uint64_t>(cfg.MaxConsumers));
     result.maxMsgs = cfg.MaxMsgs <= -1 ? std::nullopt : std::optional(static_cast<uint64_t>(cfg.MaxMsgs));
     result.maxBytes = cfg.MaxBytes <= -1 ? std::nullopt : std::optional(static_cast<uint64_t>(cfg.MaxBytes));
-    result.maxAge = cfg.MaxAge <= 0 ? std::nullopt : std::optional(static_cast<int64_t>(cfg.MaxAge));
+    result.maxAge = cfg.MaxAge <= 0 ? std::nullopt : std::optional(NatsDuration{cfg.MaxAge});
     result.maxMsgsPerSubject =
         cfg.MaxMsgsPerSubject <= 0 ? std::nullopt : std::optional(static_cast<uint64_t>(cfg.MaxMsgsPerSubject));
     result.maxMsgSize = cfg.MaxMsgSize <= -1 ? std::nullopt : std::optional(static_cast<uint32_t>(cfg.MaxMsgSize));
 
     result.replicas = cfg.Replicas;
     result.noAck = cfg.NoAck;
-    result.duplicates = cfg.Duplicates;
+    result.duplicates = NatsDuration{cfg.Duplicates};
     result.templateOwner = cfg.Template ? std::optional(QString::fromUtf8(cfg.Template)) : std::nullopt;
     result.placement = cfg.Placement ? std::optional(fromC(*cfg.Placement)) : std::nullopt;
     result.mirror = cfg.Mirror ? std::optional(fromC(*cfg.Mirror)) : std::nullopt;
@@ -175,9 +175,9 @@ JsStreamState fromC(const jsStreamState& state) {
     result.msgs = state.Msgs;
     result.bytes = state.Bytes;
     result.firstSeq = state.FirstSeq;
-    result.firstTime = state.FirstTime;
+    result.firstTime = NatsTimePoint{NatsDuration{state.FirstTime}};
     result.lastSeq = state.LastSeq;
-    result.lastTime = state.LastTime;
+    result.lastTime = NatsTimePoint{NatsDuration{state.LastTime}};
     result.numSubjects = state.NumSubjects;
     result.subjects = state.Subjects ? std::optional(fromC(*state.Subjects)) : std::nullopt;
     result.numDeleted = state.NumDeleted;
@@ -194,7 +194,7 @@ JsPeerInfo fromC(const jsPeerInfo& peer) {
     result.name = QString::fromUtf8(peer.Name);
     result.current = peer.Current;
     result.offline = peer.Offline;
-    result.active = peer.Active;
+    result.active = NatsDuration{peer.Active};
     result.lag = peer.Lag;
     return result;
 }
@@ -214,7 +214,7 @@ JsStreamSourceInfo fromC(const jsStreamSourceInfo& src) {
     result.name = QString::fromUtf8(src.Name);
     result.external = src.External ? std::optional(fromC(*src.External)) : std::nullopt;
     result.lag = src.Lag;
-    result.active = src.Active;
+    result.active = NatsDuration{src.Active};
     result.filterSubject = src.FilterSubject ? std::optional(QString::fromUtf8(src.FilterSubject)) : std::nullopt;
     for (int i = 0; i < src.SubjectTransformsLen; i++) {
         result.subjectTransforms.append(fromC(src.SubjectTransforms[i]));
@@ -233,7 +233,7 @@ JsStreamAlternate fromC(const jsStreamAlternate& alt) {
 JsStreamInfo fromC(const JsStreamInfoPtr& info) {
     JsStreamInfo result;
     result.config = fromC(*info->Config);
-    result.created = info->Created;
+    result.created = NatsTimePoint{NatsDuration{info->Created}};
     result.state = fromC(info->State);
     result.cluster = info->Cluster ? std::optional(fromC(*info->Cluster)) : std::nullopt;
     result.mirror = info->Mirror ? std::optional(fromC(*info->Mirror)) : std::nullopt;
@@ -249,8 +249,8 @@ JsStreamInfo fromC(const JsStreamInfoPtr& info) {
 JsConsumerPauseResponse fromC(const JsConsumerPauseResponsePtr& resp) {
     JsConsumerPauseResponse result;
     result.paused = resp->Paused;
-    result.pauseUntil = resp->PauseUntil;
-    result.pauseRemaining = resp->PauseRemaining;
+    result.pauseUntil = resp->PauseUntil > 0 ? std::optional(NatsTimePoint{NatsDuration{resp->PauseUntil}}) : std::nullopt;
+    result.pauseRemaining = NatsDuration{resp->PauseRemaining};
     return result;
 }
 
@@ -270,32 +270,32 @@ JsConsumerConfig fromC(const jsConsumerConfig& cfg) {
                               ? std::nullopt
                               : std::optional(static_cast<JsReplayPolicy>(cfg.ReplayPolicy));
     result.optStartSeq = cfg.OptStartSeq;
-    result.optStartTime = cfg.OptStartTime;
-    result.ackWait = cfg.AckWait;
+    result.optStartTime = cfg.OptStartTime > 0 ? std::optional(NatsTimePoint{NatsDuration{cfg.OptStartTime}}) : std::nullopt;
+    result.ackWait = NatsDuration{cfg.AckWait};
     result.maxDeliver = cfg.MaxDeliver;
     for (int i = 0; i < cfg.BackOffLen; ++i)
-        result.backOff.append(cfg.BackOff[i]);
+        result.backOff.append(NatsDuration{cfg.BackOff[i]});
     result.filterSubject = cfg.FilterSubject ? std::optional(QString::fromUtf8(cfg.FilterSubject)) : std::nullopt;
-    result.rateLimit = cfg.RateLimit == 0 ? std::nullopt : std::optional(cfg.RateLimit);
+    result.rateLimit = cfg.RateLimit > 0 ? std::optional(cfg.RateLimit) : std::nullopt;
     result.sampleFrequency =
         cfg.SampleFrequency ? std::optional(QString::fromUtf8(cfg.SampleFrequency)) : std::nullopt;
     result.maxWaiting = cfg.MaxWaiting;
     result.maxAckPending = cfg.MaxAckPending;
     result.flowControl = cfg.FlowControl;
-    result.heartbeat = cfg.Heartbeat;
+    result.heartbeat = NatsDuration{cfg.Heartbeat};
     result.headersOnly = cfg.HeadersOnly;
     result.maxRequestBatch = cfg.MaxRequestBatch;
-    result.maxRequestExpires = cfg.MaxRequestExpires;
+    result.maxRequestExpires = NatsDuration{cfg.MaxRequestExpires};
     result.maxRequestMaxBytes = cfg.MaxRequestMaxBytes;
     result.deliverSubject = cfg.DeliverSubject ? std::optional(QString::fromUtf8(cfg.DeliverSubject)) : std::nullopt;
     result.deliverGroup = cfg.DeliverGroup ? std::optional(QString::fromUtf8(cfg.DeliverGroup)) : std::nullopt;
-    result.inactiveThreshold = cfg.InactiveThreshold;
+    result.inactiveThreshold = NatsDuration{cfg.InactiveThreshold};
     result.replicas = cfg.Replicas;
     result.memoryStorage = cfg.MemoryStorage;
     for (int i = 0; i < cfg.FilterSubjectsLen; ++i)
         result.filterSubjects.append(QString::fromUtf8(cfg.FilterSubjects[i]));
     result.metadata = fromC(cfg.Metadata);
-    result.pauseUntil = cfg.PauseUntil;
+    result.pauseUntil = cfg.PauseUntil > 0 ? std::optional(NatsTimePoint{NatsDuration{cfg.PauseUntil}}) : std::nullopt;
     return result;
 }
 
@@ -310,7 +310,7 @@ JsSequenceInfo fromC(const jsSequenceInfo& seq) {
     JsSequenceInfo result;
     result.consumer = seq.Consumer;
     result.stream = seq.Stream;
-    result.last = seq.Last;
+    result.last = NatsTimePoint{NatsDuration{seq.Last}};
     return result;
 }
 
@@ -318,7 +318,7 @@ JsConsumerInfo fromC(const JsConsumerInfoPtr& info) {
     JsConsumerInfo result;
     result.stream = QString::fromUtf8(info->Stream);
     result.name = QString::fromUtf8(info->Name);
-    result.created = info->Created;
+    result.created = NatsTimePoint{NatsDuration{info->Created}};
     result.config = fromC(*info->Config);
     result.delivered = fromC(info->Delivered);
     result.ackFloor = fromC(info->AckFloor);
@@ -329,7 +329,7 @@ JsConsumerInfo fromC(const JsConsumerInfoPtr& info) {
     result.cluster = info->Cluster ? std::optional(fromC(*info->Cluster)) : std::nullopt;
     result.pushBound = info->PushBound;
     result.paused = info->Paused;
-    result.pauseRemaining = info->PauseRemaining;
+    result.pauseRemaining = NatsDuration{info->PauseRemaining};
     return result;
 }
 
