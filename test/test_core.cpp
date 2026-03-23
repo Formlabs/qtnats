@@ -58,8 +58,13 @@ void CoreTestCase::initTestCase() {
 }
 
 void CoreTestCase::cleanupTestCase() {
-    natsServer.close();
-    natsServer.waitForFinished();
+    if (natsServer.state() != QProcess::NotRunning) {
+        natsServer.close();
+        if (!natsServer.waitForFinished(3000)) {
+            natsServer.kill();
+            natsServer.waitForFinished();
+        }
+    }
 }
 
 void CoreTestCase::subscribe() {

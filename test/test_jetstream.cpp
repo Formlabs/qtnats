@@ -59,28 +59,41 @@ void JetStreamTestCase::initTestCase() {
     QVERIFY(natsServer.waitForStarted());
     QTest::qWait(1000);
 
-    client = std::make_unique<Client>();
-    client->connectToServer(QUrl("nats://localhost:4222"));
+    try {
+        client = std::make_unique<Client>();
+        client->connectToServer(QUrl("nats://localhost:4222"));
 
-    js = client->jetStream();
+        js = client->jetStream();
 
-    // Create a shared stream for the publish/subscribe tests
-    js->addStream(JsStreamConfig{
-        .name = "TEST_STREAM",
-        .subjects = {"test.>"},
-        .storage = JsStorageType::Memory,
-    });
+        // Create a shared stream for the publish/subscribe tests
+        js->addStream(JsStreamConfig{
+            .name = "TEST_STREAM",
+            .subjects = {"test.>"},
+            .storage = JsStorageType::Memory,
+        });
+    } catch (const QException& e) {
+        QFAIL(e.what());
+    }
 }
 
 void JetStreamTestCase::cleanupTestCase() {
-    if (js) {
-        js->deleteStream("TEST_STREAM");
+    try {
+        if (js) {
+            js->deleteStream("TEST_STREAM");
+        }
+    } catch (const std::exception& e) {
+        cerr << "cleanupTestCase: " << e.what() << endl;
     }
     js = nullptr;
     client.reset();
 
-    natsServer.close();
-    natsServer.waitForFinished();
+    if (natsServer.state() != QProcess::NotRunning) {
+        natsServer.close();
+        if (!natsServer.waitForFinished(3000)) {
+            natsServer.kill();
+            natsServer.waitForFinished();
+        }
+    }
 }
 
 void JetStreamTestCase::streamManagement() {
