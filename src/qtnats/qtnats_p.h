@@ -99,6 +99,9 @@ struct JsPubAckDeleter {
 struct JsStreamInfoDeleter {
     void operator()(jsStreamInfo* p) const { jsStreamInfo_Destroy(p); }
 };
+struct JsConsumerInfoDeleter {
+    void operator()(jsConsumerInfo* p) const { jsConsumerInfo_Destroy(p); }
+};
 struct NatsMsgDeleter {
     void operator()(natsMsg* p) const { natsMsg_Destroy(p); }
 };
@@ -107,6 +110,7 @@ struct NatsOptsDeleter {
 };
 using JsPubAckPtr = std::unique_ptr<jsPubAck, JsPubAckDeleter>;
 using JsStreamInfoPtr = std::unique_ptr<jsStreamInfo, JsStreamInfoDeleter>;
+using JsConsumerInfoPtr = std::unique_ptr<jsConsumerInfo, JsConsumerInfoDeleter>;
 using NatsMsgPtr = std::unique_ptr<natsMsg, NatsMsgDeleter>;
 using NatsOptsPtr = std::unique_ptr<natsOptions, NatsOptsDeleter>;
 
@@ -130,6 +134,10 @@ JsClusterInfo fromC(const jsClusterInfo& cluster);
 JsStreamSourceInfo fromC(const jsStreamSourceInfo& src);
 JsStreamAlternate fromC(const jsStreamAlternate& alt);
 JsStreamInfo fromC(const JsStreamInfoPtr& info);
+JsConsumerConfig fromC(const jsConsumerConfig& cfg);
+JsSequencePair fromC(const jsSequencePair& seq);
+JsSequenceInfo fromC(const jsSequenceInfo& seq);
+JsConsumerInfo fromC(const JsConsumerInfoPtr& info);
 
 // Probe functor used by convertAndHandleAll to deduce CType without a runtime call.
 // A lambda would be simpler ([](auto& c) { return &c; }) but lambdas in unevaluated
@@ -278,7 +286,7 @@ auto convertAndHandle(const JsConsumerConfig& c, F&& handler) -> std::invoke_res
     o.BackOffLen = static_cast<int>(c.backOff.size());
     o.FilterSubject = a.add(c.filterSubject);
     o.ReplayPolicy = c.replayPolicy ? static_cast<jsReplayPolicy>(*c.replayPolicy) : static_cast<jsReplayPolicy>(-1);
-    o.RateLimit = c.rateLimit;
+    o.RateLimit = c.rateLimit.value_or(0);
     o.SampleFrequency = a.add(c.sampleFrequency);
     o.MaxWaiting = c.maxWaiting;
     o.MaxAckPending = c.maxAckPending;
@@ -293,12 +301,13 @@ auto convertAndHandle(const JsConsumerConfig& c, F&& handler) -> std::invoke_res
     o.InactiveThreshold = c.inactiveThreshold;
     o.Replicas = c.replicas;
     o.MemoryStorage = c.memoryStorage;
-    // FilterSubjects and Metadata require intermediate pointer arrays — TODO
-    o.FilterSubjects = nullptr;
-    o.FilterSubjectsLen = 0;
-    o.Metadata = {nullptr, 0};
+    o.FilterSubjects = a.add(c.filterSubjects);
+    o.FilterSubjectsLen = static_cast<int>(c.filterSubjects.size());
     o.PauseUntil = c.pauseUntil;
-    return handler(o);
+    return convertAndHandle(c.metadata, [&](const natsMetadata& meta) {
+        o.Metadata = meta;
+        return handler(o);
+    });
 }
 
 template <typename F>

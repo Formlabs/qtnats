@@ -246,4 +246,83 @@ JsStreamInfo fromC(const JsStreamInfoPtr& info) {
     return result;
 }
 
+JsConsumerConfig fromC(const jsConsumerConfig& cfg) {
+    JsConsumerConfig result;
+    result.name = cfg.Name ? std::optional(QString::fromUtf8(cfg.Name)) : std::nullopt;
+    result.durable = cfg.Durable ? std::optional(QString::fromUtf8(cfg.Durable)) : std::nullopt;
+    result.description = cfg.Description ? std::optional(QString::fromUtf8(cfg.Description)) : std::nullopt;
+    // Enums are set to -1 when not specified (see convertAndHandle(JsConsumerConfig))
+    result.deliverPolicy = static_cast<int>(cfg.DeliverPolicy) == -1
+                               ? std::nullopt
+                               : std::optional(static_cast<JsDeliverPolicy>(cfg.DeliverPolicy));
+    result.ackPolicy = static_cast<int>(cfg.AckPolicy) == -1
+                           ? std::nullopt
+                           : std::optional(static_cast<JsAckPolicy>(cfg.AckPolicy));
+    result.replayPolicy = static_cast<int>(cfg.ReplayPolicy) == -1
+                              ? std::nullopt
+                              : std::optional(static_cast<JsReplayPolicy>(cfg.ReplayPolicy));
+    result.optStartSeq = cfg.OptStartSeq;
+    result.optStartTime = cfg.OptStartTime;
+    result.ackWait = cfg.AckWait;
+    result.maxDeliver = cfg.MaxDeliver;
+    for (int i = 0; i < cfg.BackOffLen; ++i)
+        result.backOff.append(cfg.BackOff[i]);
+    result.filterSubject = cfg.FilterSubject ? std::optional(QString::fromUtf8(cfg.FilterSubject)) : std::nullopt;
+    result.rateLimit = cfg.RateLimit == 0 ? std::nullopt : std::optional(cfg.RateLimit);
+    result.sampleFrequency =
+        cfg.SampleFrequency ? std::optional(QString::fromUtf8(cfg.SampleFrequency)) : std::nullopt;
+    result.maxWaiting = cfg.MaxWaiting;
+    result.maxAckPending = cfg.MaxAckPending;
+    result.flowControl = cfg.FlowControl;
+    result.heartbeat = cfg.Heartbeat;
+    result.headersOnly = cfg.HeadersOnly;
+    result.maxRequestBatch = cfg.MaxRequestBatch;
+    result.maxRequestExpires = cfg.MaxRequestExpires;
+    result.maxRequestMaxBytes = cfg.MaxRequestMaxBytes;
+    result.deliverSubject = cfg.DeliverSubject ? std::optional(QString::fromUtf8(cfg.DeliverSubject)) : std::nullopt;
+    result.deliverGroup = cfg.DeliverGroup ? std::optional(QString::fromUtf8(cfg.DeliverGroup)) : std::nullopt;
+    result.inactiveThreshold = cfg.InactiveThreshold;
+    result.replicas = cfg.Replicas;
+    result.memoryStorage = cfg.MemoryStorage;
+    for (int i = 0; i < cfg.FilterSubjectsLen; ++i)
+        result.filterSubjects.append(QString::fromUtf8(cfg.FilterSubjects[i]));
+    result.metadata = fromC(cfg.Metadata);
+    result.pauseUntil = cfg.PauseUntil;
+    return result;
+}
+
+JsSequencePair fromC(const jsSequencePair& seq) {
+    JsSequencePair result;
+    result.consumer = seq.Consumer;
+    result.stream = seq.Stream;
+    return result;
+}
+
+JsSequenceInfo fromC(const jsSequenceInfo& seq) {
+    JsSequenceInfo result;
+    result.consumer = seq.Consumer;
+    result.stream = seq.Stream;
+    result.last = seq.Last;
+    return result;
+}
+
+JsConsumerInfo fromC(const JsConsumerInfoPtr& info) {
+    JsConsumerInfo result;
+    result.stream = QString::fromUtf8(info->Stream);
+    result.name = QString::fromUtf8(info->Name);
+    result.created = info->Created;
+    result.config = fromC(*info->Config);
+    result.delivered = fromC(info->Delivered);
+    result.ackFloor = fromC(info->AckFloor);
+    result.numAckPending = info->NumAckPending;
+    result.numRedelivered = info->NumRedelivered;
+    result.numWaiting = info->NumWaiting;
+    result.numPending = info->NumPending;
+    result.cluster = info->Cluster ? std::optional(fromC(*info->Cluster)) : std::nullopt;
+    result.pushBound = info->PushBound;
+    result.paused = info->Paused;
+    result.pauseRemaining = info->PauseRemaining;
+    return result;
+}
+
 } // namespace QtNats
