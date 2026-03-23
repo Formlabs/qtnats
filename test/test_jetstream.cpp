@@ -25,7 +25,6 @@
 
 #include <QtTest>
 
-using namespace std;
 using namespace QtNats;
 
 template<typename T>
@@ -54,7 +53,7 @@ private Q_SLOTS:
 
 void JetStreamTestCase::initTestCase() {
     connect(&natsServer, &QProcess::stateChanged, [](QProcess::ProcessState newState) {
-        cout << "nats-server: " << qPrintable(enumToString(newState)) << endl;
+        std::cout << "nats-server: " << qPrintable(enumToString(newState)) << std::endl;
     });
 
     natsServer.start("nats-server", QStringList() << "-js");
@@ -100,7 +99,7 @@ void JetStreamTestCase::publish() {
         auto js = c.jetStream();
 
         connect(js, &JetStream::errorOccurred, [](natsStatus error, jsErrCode jsErr, const QString &text, Message msg) {
-            cout << "JS error: " << qPrintable(text) << endl;
+            std::cout << "JS error: " << qPrintable(text) << std::endl;
         });
 
         auto ack = js->publish(Message("test.1", "HI"), {});
