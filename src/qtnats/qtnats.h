@@ -164,7 +164,7 @@ struct JsConsumerConfig {
     QList<int64_t> backOff; ///< Redelivery intervals, nanoseconds
 
     std::optional<QString> filterSubject;   ///< Subject filter for this consumer
-    uint64_t rateLimit = 0;                 ///< Rate limit in bits per second
+    std::optional<uint64_t> rateLimit;      ///< Rate limit in bits per second; nullopt = unlimited (0 in cnats)
     std::optional<QString> sampleFrequency; ///< Percentage of messages to sample for observability
 
     int64_t maxWaiting = 0;    ///< Maximum number of outstanding pull requests
@@ -337,6 +337,34 @@ struct JsStreamInfo {
     std::optional<JsStreamSourceInfo> mirror;
     QList<JsStreamSourceInfo> sources;
     QList<JsStreamAlternate> alternates;
+};
+
+struct JsSequencePair {
+    uint64_t consumer = 0; ///< Consumer sequence number
+    uint64_t stream = 0;   ///< Stream sequence number
+};
+
+struct JsSequenceInfo {
+    uint64_t consumer = 0; ///< Consumer sequence number
+    uint64_t stream = 0;   ///< Stream sequence number
+    int64_t last = 0;      ///< UTC nanoseconds since epoch of the last activity
+};
+
+struct JsConsumerInfo {
+    QString stream;        ///< Name of the stream this consumer belongs to
+    QString name;          ///< Name of the consumer
+    int64_t created = 0;   ///< UTC nanoseconds since epoch when the consumer was created
+    JsConsumerConfig config;
+    JsSequenceInfo delivered; ///< Last sequence delivered and acknowledged
+    JsSequenceInfo ackFloor;  ///< Highest contiguous acknowledged sequence
+    int64_t numAckPending = 0;   ///< Number of messages waiting for acknowledgement
+    int64_t numRedelivered = 0;  ///< Number of messages redelivered
+    int64_t numWaiting = 0;      ///< Number of waiting pull requests
+    uint64_t numPending = 0;     ///< Number of messages remaining to be delivered
+    std::optional<JsClusterInfo> cluster;
+    bool pushBound = false;      ///< Whether a push consumer is bound to a subscription
+    bool paused = false;         ///< Whether the consumer is paused
+    int64_t pauseRemaining = 0;  ///< Remaining pause duration, nanoseconds
 };
 
 struct JsOptionsPublishAsync {
