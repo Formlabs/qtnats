@@ -81,6 +81,60 @@ QList<Message> PullSubscription::fetch(const int batch, const int64_t timeout) c
 
 JetStream::~JetStream() noexcept { jsCtx_Destroy(m_jsCtx); }
 
+// ---- Stream/Consumer management ----
+
+JsStreamInfo JetStream::addStream(const JsStreamConfig& config) {
+    return convertAndHandle(config, [&](jsStreamConfig& cfg) {
+        jsStreamInfo* raw = nullptr;
+        jsErrCode jsErr = {};
+        const natsStatus s = js_AddStream(&raw, m_jsCtx, &cfg, nullptr, &jsErr);
+        checkJsError(s, jsErr);
+        return fromC(JsStreamInfoPtr(raw));
+    });
+}
+
+JsStreamInfo JetStream::updateStream(const JsStreamConfig& config) {
+    return convertAndHandle(config, [&](jsStreamConfig& cfg) {
+        jsStreamInfo* raw = nullptr;
+        jsErrCode jsErr = {};
+        const natsStatus s = js_UpdateStream(&raw, m_jsCtx, &cfg, nullptr, &jsErr);
+        checkJsError(s, jsErr);
+        return fromC(JsStreamInfoPtr(raw));
+    });
+}
+
+bool JetStream::deleteStream(const QString& name) {
+    jsErrCode jsErr = {};
+    const natsStatus s = js_DeleteStream(m_jsCtx, name.toUtf8().constData(), nullptr, &jsErr);
+    if (s == NATS_NOT_FOUND) {
+        return false;
+    }
+    checkJsError(s, jsErr);
+    return true;
+}
+
+void JetStream::addConsumer(const QString& stream, const JsConsumerConfig& config) {
+    convertAndHandle(config, [&](jsConsumerConfig& cfg) {
+        jsConsumerInfo* raw = nullptr;
+        jsErrCode jsErr = {};
+        const natsStatus s = js_AddConsumer(&raw, m_jsCtx, stream.toUtf8().constData(), &cfg, nullptr, &jsErr);
+        JsConsumerInfoPtr guard(raw);
+        checkJsError(s, jsErr);
+    });
+}
+
+bool JetStream::deleteConsumer(const QString& stream, const QString& consumer) {
+    jsErrCode jsErr = {};
+    const natsStatus s =
+        js_DeleteConsumer(m_jsCtx, stream.toUtf8().constData(), consumer.toUtf8().constData(), nullptr, &jsErr);
+    if (s == NATS_NOT_FOUND) {
+        return false;
+    }
+    checkJsError(s, jsErr);
+    return true;
+}
+
+// ---- Publish ----
 
 JsPublishAck JetStream::publish(const Message& msg, const JsPublishOptions& opts) {
     return convertAndHandle(opts, [&](jsPubOptions& jsOpts) { return doPublish(msg, &jsOpts); });
