@@ -568,6 +568,8 @@ public:
 
     static void deleteConsumer(const JetStream* js, const QString& stream, const QString& consumer);
 
+    static JsConsumerPauseResponse pauseConsumer(const JetStream* js, const QString& stream, const QString& consumer, int64_t pauseUntil);
+
     natsConnection* getNatsConnection() const { return m_conn; }
 
 Q_SIGNALS:

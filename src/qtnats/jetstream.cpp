@@ -118,6 +118,16 @@ void Client::deleteConsumer(const JetStream* js, const QString& stream, const QS
     checkJsError(s, jsErr);
 }
 
+JsConsumerPauseResponse Client::pauseConsumer(const JetStream* js, const QString& stream, const QString& consumer, int64_t pauseUntil) {
+    jsConsumerPauseResponse* resp;
+    jsErrCode jsErr;
+    const natsStatus s = js_PauseConsumer(
+        &resp, js->getJsContext(), stream.toUtf8().constData(), consumer.toUtf8().constData(), pauseUntil, nullptr, &jsErr
+    );
+    checkJsError(s, jsErr);
+    return fromC(JsConsumerPauseResponsePtr(resp));
+}
+
 void Message::ack() const {
     jsErrCode jsErr;
     const natsStatus s = natsMsg_AckSync(m_natsMsg.get(), nullptr, &jsErr);
