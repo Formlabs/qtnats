@@ -43,4 +43,40 @@ JsPublishAck fromC(const JsPubAckPtr& ack) {
     return result;
 }
 
+static JsStreamConfig streamConfigFromC(const jsStreamConfig* cfg) {
+    JsStreamConfig result;
+    result.name = QString::fromUtf8(cfg->Name);
+    if (cfg->Description) {
+        result.description = QString::fromUtf8(cfg->Description);
+    }
+    for (int i = 0; i < cfg->SubjectsLen; i++) {
+        result.subjects.append(QString::fromUtf8(cfg->Subjects[i]));
+    }
+    result.retention = static_cast<JsRetentionPolicy>(cfg->Retention);
+    result.storage = static_cast<JsStorageType>(cfg->Storage);
+    result.discard = static_cast<JsDiscardPolicy>(cfg->Discard);
+    result.maxConsumers = cfg->MaxConsumers;
+    result.maxMsgs = cfg->MaxMsgs;
+    result.maxBytes = cfg->MaxBytes;
+    result.maxAge = cfg->MaxAge;
+    result.maxMsgSize = cfg->MaxMsgSize;
+    result.numReplicas = cfg->Replicas;
+    result.duplicateWindow = cfg->Duplicates;
+    result.maxMsgsPerSubject = cfg->MaxMsgsPerSubject;
+    result.noAck = cfg->NoAck;
+    return result;
+}
+
+JsStreamInfo fromC(const JsStreamInfoPtr& info) {
+    JsStreamInfo result;
+    result.config = streamConfigFromC(info->Config);
+    result.state.messages = info->State.Msgs;
+    result.state.bytes = info->State.Bytes;
+    result.state.firstSeq = info->State.FirstSeq;
+    result.state.lastSeq = info->State.LastSeq;
+    result.state.numSubjects = info->State.NumSubjects;
+    result.state.numDeleted = info->State.NumDeleted;
+    return result;
+}
+
 } // namespace QtNats

@@ -61,11 +61,20 @@ struct NatsMsgDeleter {
 struct NatsOptsDeleter {
     void operator()(natsOptions* p) const { natsOptions_Destroy(p); }
 };
+struct JsStreamInfoDeleter {
+    void operator()(jsStreamInfo* p) const { jsStreamInfo_Destroy(p); }
+};
+struct JsConsumerInfoDeleter {
+    void operator()(jsConsumerInfo* p) const { jsConsumerInfo_Destroy(p); }
+};
 using JsPubAckPtr = std::unique_ptr<jsPubAck, JsPubAckDeleter>;
 using NatsMsgPtr = std::unique_ptr<natsMsg, NatsMsgDeleter>;
 using NatsOptsPtr = std::unique_ptr<natsOptions, NatsOptsDeleter>;
+using JsStreamInfoPtr = std::unique_ptr<jsStreamInfo, JsStreamInfoDeleter>;
+using JsConsumerInfoPtr = std::unique_ptr<jsConsumerInfo, JsConsumerInfoDeleter>;
 
 JsPublishAck fromC(const JsPubAckPtr& ack);
+JsStreamInfo fromC(const JsStreamInfoPtr& info);
 Message fromC(NatsMsgPtr msg);
 
 template <typename F>
@@ -80,9 +89,7 @@ auto convertAndHandle(const Message& msg, const char* reply, F&& handler) -> std
         realReply = msg.reply.constData();
     }
 
-    checkError(
-        natsMsg_Create(&cnatsMsg, a.add(msg.subject), realReply, msg.data.constData(), msg.data.size())
-    );
+    checkError(natsMsg_Create(&cnatsMsg, a.add(msg.subject), realReply, msg.data.constData(), msg.data.size()));
 
     NatsMsgPtr msgPtr(cnatsMsg);
 
@@ -126,9 +133,7 @@ auto convertAndHandle(const Options& opts, F&& handler) -> std::invoke_result_t<
         checkError(natsOptions_SetCATrustedCertificates(o, a.add(opts.caFile)));
     }
     if (!opts.certFile.isEmpty() && !opts.keyFile.isEmpty()) {
-        checkError(
-            natsOptions_LoadCertificatesChain(o, a.add(opts.certFile), a.add(opts.keyFile))
-        );
+        checkError(natsOptions_LoadCertificatesChain(o, a.add(opts.certFile), a.add(opts.keyFile)));
     }
 
     checkError(natsOptions_SetVerbose(o, opts.verbose));
@@ -184,6 +189,33 @@ auto convertAndHandle(const JsConsumerConfig& c, F&& handler) -> std::invoke_res
     o.FilterSubjectsLen = 0;
     o.Metadata = {nullptr, 0};
     o.PauseUntil = c.pauseUntil;
+    return handler(o);
+}
+
+template <typename F>
+auto convertAndHandle(const JsStreamConfig& cfg, F&& handler) -> std::invoke_result_t<F, jsStreamConfig&> {
+    StringArena a;
+    jsStreamConfig o = {};
+    o.Name = a.add(cfg.name);
+    o.Description = a.add(cfg.description);
+    QList<const char*> subPtrs;
+    for (const auto& s : cfg.subjects) {
+        subPtrs.append(a.add(s));
+    }
+    o.Subjects = subPtrs.data();
+    o.SubjectsLen = subPtrs.size();
+    o.Retention = static_cast<jsRetentionPolicy>(cfg.retention);
+    o.Storage = static_cast<jsStorageType>(cfg.storage);
+    o.Discard = static_cast<jsDiscardPolicy>(cfg.discard);
+    o.MaxConsumers = cfg.maxConsumers;
+    o.MaxMsgs = cfg.maxMsgs;
+    o.MaxBytes = cfg.maxBytes;
+    o.MaxAge = cfg.maxAge;
+    o.MaxMsgSize = cfg.maxMsgSize;
+    o.Replicas = cfg.numReplicas;
+    o.Duplicates = cfg.duplicateWindow;
+    o.MaxMsgsPerSubject = cfg.maxMsgsPerSubject;
+    o.NoAck = cfg.noAck;
     return handler(o);
 }
 
@@ -253,6 +285,9 @@ auto convertAndHandle(const JsPublishOptions& opts, F&& handler) -> std::invoke_
     o.ExpectLastSeq = opts.expectLastSequence;
     o.ExpectLastSubjectSeq = opts.expectLastSubjectSequence;
     o.ExpectNoMessage = opts.expectNoMessage;
+    if (opts.msgTTL.has_value()) {
+        o.MsgTTL = opts.msgTTL.value();
+    }
     return handler(o);
 }
 

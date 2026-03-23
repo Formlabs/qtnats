@@ -65,7 +65,9 @@ public:
     const jsErrCode jsError;
 
 private:
-    [[nodiscard]] QByteArray initText(const jsErrCode js) const { return QString("%1: %2").arg(Exception::what()).arg(js).toLatin1(); }
+    [[nodiscard]] QByteArray initText(const jsErrCode js) const {
+        return QString("%1: %2").arg(Exception::what()).arg(js).toLatin1();
+    }
 
     const QByteArray errorText;
 };
@@ -112,6 +114,60 @@ enum class JsReplayPolicy {
 };
 
 Q_ENUM_NS(JsReplayPolicy)
+
+enum class JsRetentionPolicy {
+    Limits = js_LimitsPolicy,
+    Interest = js_InterestPolicy,
+    WorkQueue = js_WorkQueuePolicy,
+};
+
+Q_ENUM_NS(JsRetentionPolicy)
+
+enum class JsStorageType {
+    File = js_FileStorage,
+    Memory = js_MemoryStorage,
+};
+
+Q_ENUM_NS(JsStorageType)
+
+enum class JsDiscardPolicy {
+    Old = js_DiscardOld,
+    New = js_DiscardNew,
+};
+
+Q_ENUM_NS(JsDiscardPolicy)
+
+struct JsStreamConfig {
+    QString name;
+    std::optional<QString> description;
+    QList<QString> subjects;
+    JsRetentionPolicy retention = JsRetentionPolicy::Limits;
+    JsStorageType storage = JsStorageType::File;
+    JsDiscardPolicy discard = JsDiscardPolicy::Old;
+    int64_t maxConsumers = -1;
+    int64_t maxMsgs = -1;
+    int64_t maxBytes = -1;
+    int64_t maxAge = 0; ///< nanoseconds
+    int32_t maxMsgSize = -1;
+    int numReplicas = 1;
+    int64_t duplicateWindow = 0; ///< nanoseconds
+    int64_t maxMsgsPerSubject = -1;
+    bool noAck = false;
+};
+
+struct JsStreamState {
+    uint64_t messages = 0;
+    uint64_t bytes = 0;
+    uint64_t firstSeq = 0;
+    uint64_t lastSeq = 0;
+    int64_t numSubjects = 0;
+    int numDeleted = 0;
+};
+
+struct JsStreamInfo {
+    JsStreamConfig config;
+    JsStreamState state;
+};
 
 struct JsConsumerConfig {
     std::optional<QString> name;
@@ -214,13 +270,14 @@ struct JsPublishAck {
 };
 
 struct JsPublishOptions {
-    std::optional<int64_t> timeout;         ///< Milliseconds to wait for publish response; default uses context's Wait value
-    std::optional<QString> msgID; ///< Message ID used for de-duplication
+    std::optional<int64_t> timeout; ///< Milliseconds to wait for publish response; default uses context's Wait value
+    std::optional<QString> msgID;   ///< Message ID used for de-duplication
     std::optional<QString> expectStream;        ///< Expected stream to respond from the publish call
     std::optional<QString> expectLastMessageID; ///< Expected last message ID in the stream
     uint64_t expectLastSequence = 0;            ///< Expected last message sequence in the stream
     uint64_t expectLastSubjectSequence = 0;     ///< Expected last message sequence for the subject in the stream
     bool expectNoMessage = false;               ///< Expected no message (sequence == 0) for the subject in the stream
+    std::optional<int64_t> msgTTL;              ///< Per-message TTL in milliseconds (nats.c v3.11+)
 };
 
 struct JsSubOptions {
@@ -413,12 +470,23 @@ public:
 
     JetStream& operator=(JetStream&&) = delete;
 
+    // Stream management
+    JsStreamInfo addStream(const JsStreamConfig& config);
+    JsStreamInfo updateStream(const JsStreamConfig& config);
+    bool deleteStream(const QString& name);
+
+    // Consumer management
+    void addConsumer(const QString& stream, const JsConsumerConfig& config);
+    bool deleteConsumer(const QString& stream, const QString& consumer);
+
+    // Publish
     JsPublishAck publish(const Message& msg, const JsPublishOptions& opts);
 
     void asyncPublish(const Message& msg, const JsPublishOptions& opts) const;
 
     void waitForPublishCompleted(std::optional<int64_t> timeout = std::nullopt) const;
 
+    // Subscribe
     Subscription* subscribe(const QString& subject, const QString& stream, const QString& consumer);
 
     PullSubscription* pullSubscribe(const QString& subject, const QString& stream, const QString& consumer);
