@@ -46,6 +46,7 @@ private Q_SLOTS:
 
     void streamManagement();
     void maxMsgsRetention();
+    void discardPolicies();
     void publish();
     void pullSubscribe();
     void pushSubscribe();
@@ -172,6 +173,86 @@ void JetStreamTestCase::maxMsgsRetention() {
         // Cleanup
         QVERIFY(js->deleteConsumer("RETENTION_STREAM", "RETENTION_CONSUMER"));
         QVERIFY(js->deleteStream("RETENTION_STREAM"));
+    } catch (const QException& e) {
+        QFAIL(e.what());
+    }
+}
+
+/// Verifies both discard policies: DiscardOld evicts the oldest messages when the stream is full
+/// (keeping the newest), while DiscardNew rejects new publishes once the limit is reached (keeping
+/// the oldest). Both use maxMsgs=3 and verify which messages survive after publishing 5.
+void JetStreamTestCase::discardPolicies() {
+    try {
+        // --- DiscardOld: oldest messages are evicted ---
+        js->addStream(JsStreamConfig{
+            .name = "DISCARD_OLD_STREAM",
+            .subjects = {"dold.>"},
+            .storage = JsStorageType::Memory,
+            .discard = JsDiscardPolicy::Old,
+            .maxMsgs = 3,
+        });
+        js->addConsumer(
+            "DISCARD_OLD_STREAM",
+            JsConsumerConfig{
+                .durable = "DOLD_CONSUMER",
+                .ackPolicy = JsAckPolicy::None,
+            }
+        );
+
+        for (int i = 1; i <= 5; i++) {
+            js->publish(Message("dold.x", QByteArray::number(i)), {});
+        }
+
+        auto oldSub = js->pullSubscribe("dold.>", "DISCARD_OLD_STREAM", "DOLD_CONSUMER");
+        auto oldMsgs = oldSub->fetch(10, 2000);
+
+        // Only the last 3 messages (3, 4, 5) should remain
+        QCOMPARE(oldMsgs.size(), 3);
+        QCOMPARE(oldMsgs[0].data, QByteArray("3"));
+        QCOMPARE(oldMsgs[1].data, QByteArray("4"));
+        QCOMPARE(oldMsgs[2].data, QByteArray("5"));
+
+        js->deleteStream("DISCARD_OLD_STREAM");
+
+        // --- DiscardNew: new publishes are rejected once full ---
+        js->addStream(JsStreamConfig{
+            .name = "DISCARD_NEW_STREAM",
+            .subjects = {"dnew.>"},
+            .storage = JsStorageType::Memory,
+            .discard = JsDiscardPolicy::New,
+            .maxMsgs = 3,
+        });
+        js->addConsumer(
+            "DISCARD_NEW_STREAM",
+            JsConsumerConfig{
+                .durable = "DNEW_CONSUMER",
+                .ackPolicy = JsAckPolicy::None,
+            }
+        );
+
+        int published = 0;
+        int rejected = 0;
+        for (int i = 1; i <= 5; i++) {
+            try {
+                js->publish(Message("dnew.x", QByteArray::number(i)), {});
+                published++;
+            } catch (const JetStreamException&) {
+                rejected++;
+            }
+        }
+        QCOMPARE(published, 3);
+        QCOMPARE(rejected, 2);
+
+        auto newSub = js->pullSubscribe("dnew.>", "DISCARD_NEW_STREAM", "DNEW_CONSUMER");
+        auto newMsgs = newSub->fetch(10, 2000);
+
+        // Only the first 3 messages (1, 2, 3) should remain
+        QCOMPARE(newMsgs.size(), 3);
+        QCOMPARE(newMsgs[0].data, QByteArray("1"));
+        QCOMPARE(newMsgs[1].data, QByteArray("2"));
+        QCOMPARE(newMsgs[2].data, QByteArray("3"));
+
+        js->deleteStream("DISCARD_NEW_STREAM");
     } catch (const QException& e) {
         QFAIL(e.what());
     }
