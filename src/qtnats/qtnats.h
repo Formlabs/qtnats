@@ -339,6 +339,12 @@ struct JsStreamInfo {
     QList<JsStreamAlternate> alternates;
 };
 
+struct JsConsumerPauseResponse {
+    bool paused = false;
+    int64_t pauseUntil = 0;    ///< UTC nanoseconds since epoch when the pause ends
+    int64_t pauseRemaining = 0; ///< Remaining pause duration, nanoseconds
+};
+
 struct JsSequencePair {
     uint64_t consumer = 0; ///< Consumer sequence number
     uint64_t stream = 0;   ///< Stream sequence number
