@@ -140,9 +140,10 @@ void JetStreamTestCase::pullSubscribe() {
         QVERIFY2(natsCli.waitForFinished(), qPrintable(natsCli.errorString()));
         QVERIFY2(natsCli.exitCode() == 0, "nats CLI failed (see output above)");
 
-        natsCli.start(
-            "nats", QStringList() << "publish" << "--count=10" << "-H" << "hdr1:val1" << "test.pull" << "hello JS");
-        natsCli.waitForFinished();
+        const Message pubMessage{"test.pull", "hello JS", {{"hdr1", "val1"}}};
+        for (auto i = 0; i < 10; i++) {
+            c.publish(pubMessage);
+        }
 
         auto sub = js->pullSubscribe("test.pull", "MY_STREAM", "PULL_CONSUMER");
 
@@ -198,8 +199,10 @@ void JetStreamTestCase::pushSubscribe() {
             msgList += message;
         });
 
-        natsCli.start("nats", QStringList() << "publish" << "--count=10" << "test.push" << "hello JS again");
-        natsCli.waitForFinished();
+        const Message pubMessage{"test.push", "hello JS again"};
+        for (auto i = 0; i < 10; i++) {
+            c.publish(pubMessage);
+        }
 
         QTest::qWait(1000);
 

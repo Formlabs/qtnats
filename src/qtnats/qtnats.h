@@ -444,8 +444,11 @@ struct JsSubOptions {
 
 struct QTNATS_EXPORT Message {
     Message() = default;
-
-    Message(QString in_subject, QByteArray in_data) : subject(std::move(in_subject)), data(std::move(in_data)) {}
+    Message(QString subject, QByteArray data) : subject{std::move(subject)}, data{std::move(data)} {}
+    Message(QString subject, QByteArray data, MessageHeaders headers)
+        : subject{std::move(subject)}
+        , data{std::move(data)}
+        , headers{std::move(headers)} {}
 
     explicit Message(natsMsg* cmsg) noexcept;
 
