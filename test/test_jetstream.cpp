@@ -53,14 +53,6 @@ private Q_SLOTS:
 };
 
 void JetStreamTestCase::initTestCase() {
-    // It might be nice to use something like CMRC to statically link the test config files; that's another dependency
-    // though, so for now we'll just verify that the directory actually exists.
-    QVERIFY2(
-        QDir::setCurrent("../qtnats/test"),
-        "Could not find test directory — run the test binary from the build directory, or update the path to match "
-        "your build directory"
-    );
-
     connect(&natsServer, &QProcess::stateChanged, [](QProcess::ProcessState newState) {
         cout << "nats-server: " << qPrintable(enumToString(newState)) << endl;
     });
@@ -129,13 +121,24 @@ void JetStreamTestCase::pullSubscribe() {
         Client c;
         c.connectToServer(QUrl("nats://localhost:4222"));
 
-        auto js = c.jetStream();
+        const auto js = c.jetStream();
 
-        natsCli.start(
-            "nats",
-            QStringList() << "consumer" << "add" << "MY_STREAM" << "PULL_CONSUMER" <<
-            "--config=pull_consumer_config.json");
-        natsCli.waitForFinished();
+        JsConsumerConfig config;
+        config.name = "PULL_CONSUMER";
+        config.deliverPolicy = JsDeliverPolicy::All;
+        config.ackPolicy = JsAckPolicy::Explicit;
+        config.replayPolicy = JsReplayPolicy::Instant;
+        config.maxDeliver = 5;
+        config.filterSubject = "test.pull";
+
+        constexpr auto streamName = "MY_STREAM";
+        const auto consumerInfo = c.addConsumer(js, streamName, config);
+        QVERIFY(consumerInfo.name == config.name);
+
+        natsCli.setProcessChannelMode(QProcess::ForwardedChannels);
+        natsCli.start("nats", QStringList() << "consumer" << "info" << streamName << config.name.value());
+        QVERIFY2(natsCli.waitForFinished(), qPrintable(natsCli.errorString()));
+        QVERIFY2(natsCli.exitCode() == 0, "nats CLI failed (see output above)");
 
         natsCli.start(
             "nats", QStringList() << "publish" << "--count=10" << "-H" << "hdr1:val1" << "test.pull" << "hello JS");
@@ -167,13 +170,25 @@ void JetStreamTestCase::pushSubscribe() {
         Client c;
         c.connectToServer(QUrl("nats://localhost:4222"));
 
-        auto js = c.jetStream();
+        const auto js = c.jetStream();
 
-        natsCli.start(
-            "nats",
-            QStringList() << "consumer" << "add" << "MY_STREAM" << "PUSH_CONSUMER" <<
-            "--config=push_consumer_config.json");
-        natsCli.waitForFinished();
+        JsConsumerConfig config;
+        config.name = "PUSH_CONSUMER";
+        config.deliverPolicy = JsDeliverPolicy::Last;
+        config.ackPolicy = JsAckPolicy::None;
+        config.replayPolicy = JsReplayPolicy::Instant;
+        config.maxDeliver = 5;
+        config.filterSubject = "test.push";
+        config.deliverSubject = "delivery";
+
+        constexpr auto streamName = "MY_STREAM";
+        const auto consumerInfo = c.addConsumer(js, streamName, config);
+        QVERIFY(consumerInfo.name == config.name);
+
+        natsCli.setProcessChannelMode(QProcess::ForwardedChannels);
+        natsCli.start("nats", QStringList() << "consumer" << "info" << streamName << config.name.value());
+        QVERIFY2(natsCli.waitForFinished(), qPrintable(natsCli.errorString()));
+        QVERIFY2(natsCli.exitCode() == 0, "nats CLI failed (see output above)");
 
         auto sub = js->subscribe("test.push", "MY_STREAM", "PUSH_CONSUMER");
         // can we miss a message if "connect" is not fast enough?
