@@ -246,6 +246,14 @@ JsStreamInfo fromC(const JsStreamInfoPtr& info) {
     return result;
 }
 
+JsConsumerPauseResponse fromC(const JsConsumerPauseResponsePtr& resp) {
+    JsConsumerPauseResponse result;
+    result.paused = resp->Paused;
+    result.pauseUntil = resp->PauseUntil;
+    result.pauseRemaining = resp->PauseRemaining;
+    return result;
+}
+
 JsConsumerConfig fromC(const jsConsumerConfig& cfg) {
     JsConsumerConfig result;
     result.name = cfg.Name ? std::optional(QString::fromUtf8(cfg.Name)) : std::nullopt;
