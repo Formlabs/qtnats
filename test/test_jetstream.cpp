@@ -39,6 +39,9 @@ class JetStreamTestCase : public QObject {
     QProcess natsServer;
     QProcess natsCli;
 
+    std::unique_ptr<Client> client;
+    JetStream* js = nullptr;
+
 private Q_SLOTS:
     void initTestCase();
     void cleanupTestCase();
@@ -49,7 +52,7 @@ private Q_SLOTS:
 };
 
 void JetStreamTestCase::initTestCase() {
-    connect(&natsServer, &QProcess::stateChanged, [](QProcess::ProcessState newState) {
+    connect(&natsServer, &QProcess::stateChanged, [](const QProcess::ProcessState newState) {
         std::cout << "nats-server: " << qPrintable(enumToString(newState)) << std::endl;
     });
 
@@ -57,9 +60,9 @@ void JetStreamTestCase::initTestCase() {
     natsServer.waitForStarted();
     QTest::qWait(1000);
 
-    Client c;
-    c.connectToServer(QUrl("nats://localhost:4222"));
-    const JetStream* js = c.jetStream();
+    client = std::make_unique<Client>();
+    client->connectToServer(QUrl("nats://localhost:4222"));
+    js = client->jetStream();
 
     JsStreamConfig config;
     config.name = "MY_STREAM";
@@ -92,11 +95,6 @@ void JetStreamTestCase::cleanupTestCase() {
 // and a positive sequence number, and five async publishes complete without error.
 void JetStreamTestCase::publish() {
     try {
-        Client c;
-        c.connectToServer(QUrl("nats://localhost:4222"));
-
-        const auto js = c.jetStream();
-
         connect(js, &JetStream::errorOccurred, [](natsStatus error, jsErrCode jsErr, const QString &text, Message msg) {
             std::cout << "JS error: " << qPrintable(text) << std::endl;
         });
@@ -116,11 +114,6 @@ void JetStreamTestCase::publish() {
 
 void JetStreamTestCase::pullSubscribe() {
     try {
-        Client c;
-        c.connectToServer(QUrl("nats://localhost:4222"));
-
-        const auto js = c.jetStream();
-
         JsConsumerConfig config;
         config.name = "PULL_CONSUMER";
         config.deliverPolicy = JsDeliverPolicy::All;
@@ -141,7 +134,7 @@ void JetStreamTestCase::pullSubscribe() {
         // Publish messages with headers
         const Message pubMessage{"test.pull", "hello JS", {{"hdr1", "val1"}}};
         for (auto i = 0; i < 10; i++) {
-            c.publish(pubMessage);
+            client->publish(pubMessage);
         }
 
         // Pull subscribe and fetch
@@ -169,11 +162,6 @@ void JetStreamTestCase::pullSubscribe() {
 /// subject, subscribes via Qt signal, publishes 10 messages, and confirms all are delivered.
 void JetStreamTestCase::pushSubscribe() {
     try {
-        Client c;
-        c.connectToServer(QUrl("nats://localhost:4222"));
-
-        const auto js = c.jetStream();
-
         JsConsumerConfig config;
         config.name = "PUSH_CONSUMER";
         config.deliverPolicy = JsDeliverPolicy::Last;
@@ -203,7 +191,7 @@ void JetStreamTestCase::pushSubscribe() {
         // Publish messages
         const Message pubMessage{"test.push", "hello JS again"};
         for (auto i = 0; i < 10; i++) {
-            c.publish(pubMessage);
+            client->publish(pubMessage);
         }
 
         QTest::qWait(1000);
