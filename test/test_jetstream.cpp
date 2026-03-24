@@ -41,13 +41,10 @@ class JetStreamTestCase : public QObject {
 
 private Q_SLOTS:
     void initTestCase();
-
     void cleanupTestCase();
 
     void publish();
-
     void pullSubscribe();
-
     void pushSubscribe();
 };
 
@@ -91,12 +88,14 @@ void JetStreamTestCase::cleanupTestCase() {
     natsServer.waitForFinished();
 }
 
+// Verifies JetStream publish: a synchronous publish returns an ack with the correct stream name
+// and a positive sequence number, and five async publishes complete without error.
 void JetStreamTestCase::publish() {
     try {
         Client c;
         c.connectToServer(QUrl("nats://localhost:4222"));
 
-        auto js = c.jetStream();
+        const auto js = c.jetStream();
 
         connect(js, &JetStream::errorOccurred, [](natsStatus error, jsErrCode jsErr, const QString &text, Message msg) {
             std::cout << "JS error: " << qPrintable(text) << std::endl;
@@ -139,32 +138,35 @@ void JetStreamTestCase::pullSubscribe() {
         QVERIFY2(natsCli.waitForFinished(), qPrintable(natsCli.errorString()));
         QVERIFY2(natsCli.exitCode() == 0, "nats CLI failed (see output above)");
 
+        // Publish messages with headers
         const Message pubMessage{"test.pull", "hello JS", {{"hdr1", "val1"}}};
         for (auto i = 0; i < 10; i++) {
             c.publish(pubMessage);
         }
 
-        auto sub = js->pullSubscribe("test.pull", "MY_STREAM", "PULL_CONSUMER");
-
+        // Pull subscribe and fetch
+        const auto sub = js->pullSubscribe("test.pull", streamName, config.name.value());
         auto msgList = sub->fetch(10);
 
-        for (Message m: msgList) {
-            m.ack();
-        }
-
         QCOMPARE(msgList.size(), 10);
-        for (Message m: msgList) {
+        for (const Message m: msgList) {
             QCOMPARE(m.data, "hello JS");
             QCOMPARE(m.subject, "test.pull");
             auto val = m.headers.values("hdr1");
             QCOMPARE(val.size(), 1);
             QCOMPARE(val[0], "val1");
+            m.ack();
         }
+
+        // Cleanup consumer
+        c.deleteConsumer(js, streamName, config.name.value());
     } catch (const QException &e) {
         QFAIL(e.what());
     }
 }
 
+/// Verifies push-based consumption: programmatically creates a durable push consumer with a deliver
+/// subject, subscribes via Qt signal, publishes 10 messages, and confirms all are delivered.
 void JetStreamTestCase::pushSubscribe() {
     try {
         Client c;
@@ -190,7 +192,7 @@ void JetStreamTestCase::pushSubscribe() {
         QVERIFY2(natsCli.waitForFinished(), qPrintable(natsCli.errorString()));
         QVERIFY2(natsCli.exitCode() == 0, "nats CLI failed (see output above)");
 
-        auto sub = js->subscribe("test.push", "MY_STREAM", "PUSH_CONSUMER");
+        const auto sub = js->subscribe("test.push", streamName, config.name.value());
         // can we miss a message if "connect" is not fast enough?
         // apparently, consumer's deliver_subject does not matter here
         QList<Message> msgList;
@@ -198,6 +200,7 @@ void JetStreamTestCase::pushSubscribe() {
             msgList += message;
         });
 
+        // Publish messages
         const Message pubMessage{"test.push", "hello JS again"};
         for (auto i = 0; i < 10; i++) {
             c.publish(pubMessage);
@@ -206,10 +209,13 @@ void JetStreamTestCase::pushSubscribe() {
         QTest::qWait(1000);
 
         QCOMPARE(msgList.size(), 10);
-        for (Message m: msgList) {
+        for (const Message m: msgList) {
             QCOMPARE(m.data, "hello JS again");
             QCOMPARE(m.subject, "test.push");
         }
+
+        // Cleanup consumer
+        c.deleteConsumer(js, streamName, config.name.value());
     } catch (const QException &e) {
         QFAIL(e.what());
     }
