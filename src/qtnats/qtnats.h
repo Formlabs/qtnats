@@ -583,6 +583,8 @@ public:
 
     static void deleteStream(const JetStream* js, const QString& stream);
 
+    static JsStreamInfo getStreamInfo(const JetStream* js, const QString& stream);
+
     static JsConsumerInfo addConsumer(const JetStream* js, const QString& stream, const JsConsumerConfig& config);
 
     static JsConsumerInfo updateConsumer(const JetStream* js, const QString& stream, const JsConsumerConfig& config);

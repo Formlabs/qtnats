@@ -76,6 +76,14 @@ void Client::deleteStream(const JetStream* js, const QString& stream) {
     checkJsError(s, jsErr);
 }
 
+JsStreamInfo Client::getStreamInfo(const JetStream* js, const QString& stream) {
+    jsStreamInfo* si;
+    jsErrCode jsErr = {};
+    const natsStatus s = js_GetStreamInfo(&si, js->getJsContext(), stream.toUtf8().constData(), nullptr, &jsErr);
+    checkJsError(s, jsErr);
+    return fromC(JsStreamInfoPtr(si));
+}
+
 JsConsumerInfo Client::addConsumer(const JetStream* js, const QString& stream, const JsConsumerConfig& config) {
     return convertAndHandle(config, [&](jsConsumerConfig& jsConfig) {
         jsConsumerInfo* ci;
