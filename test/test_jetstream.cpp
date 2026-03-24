@@ -46,6 +46,9 @@ private Q_SLOTS:
     void initTestCase();
     void cleanupTestCase();
 
+    void streamManagement() const;
+    void maxMsgsRetention() const;
+    void discardPolicies() const;
     void publish();
     void pullSubscribe();
     void pushSubscribe();
@@ -89,6 +92,163 @@ void JetStreamTestCase::initTestCase() {
 void JetStreamTestCase::cleanupTestCase() {
     natsServer.close();
     natsServer.waitForFinished();
+}
+
+/// Verifies stream CRUD: create a stream and inspect its config, update maxMsgs, delete it, and
+/// confirm that deleting a non-existent stream returns false.
+void JetStreamTestCase::streamManagement() const {
+    try {
+        // Create
+        JsStreamConfig config;
+        config.name = "MGMT_STREAM";
+        config.subjects = {"mgmt.>"};
+        config.storage = JsStorageType::Memory;
+
+        const auto info = js->addStream(config);
+        QCOMPARE(info.config.name, config.name);
+        QCOMPARE(info.config.subjects.size(), config.subjects.size());
+        QCOMPARE(info.config.subjects[0], config.subjects[0]);
+        QCOMPARE(info.config.storage, config.storage);
+
+        // Update — change max messages
+        config.maxMsgs = 1000;
+        const auto updatedInfo = js->updateStream(config);
+        QCOMPARE(updatedInfo.config.maxMsgs, config.maxMsgs);
+
+        // Delete
+        js->deleteStream("MGMT_STREAM");
+
+        // Deleting a non-existant stream should throw
+        QVERIFY_THROWS_EXCEPTION(QtNats::JetStreamException, js->deleteStream("MGMT_STREAM"));
+    } catch (const QException& e) {
+        QFAIL(e.what());
+    }
+}
+
+/// Verifies the discard-old retention policy: a stream with maxMsgs=5 evicts the oldest messages
+/// when more than 5 are published, leaving only the most recent 5 retrievable.
+void JetStreamTestCase::maxMsgsRetention() const {
+    try {
+        // Create a stream that retains at most 5 messages
+        JsStreamConfig streamConfig;
+        streamConfig.name = "RETENTION_STREAM";
+        streamConfig.subjects = {"retain.>"};
+        streamConfig.storage = JsStorageType::Memory;
+        streamConfig.maxMsgs = 5;
+
+        const auto info = js->addStream(streamConfig);
+        QCOMPARE(info.config.maxMsgs, 5);
+
+        // Create a consumer so we can inspect what's in the stream
+        JsConsumerConfig consumerConfig;
+        consumerConfig.durable = "RETENTION_CONSUMER";
+        consumerConfig.ackPolicy = JsAckPolicy::Explicit;
+        consumerConfig.filterSubject = "retain.data";
+        js->addConsumer("RETENTION_STREAM", consumerConfig);
+
+        // Publish 10 messages — the first 5 should be evicted
+        for (int i = 0; i < 10; i++) {
+            js->publish(Message("retain.data", QByteArray::number(i)), {});
+        }
+
+        // Fetch all available messages — should be exactly the last 5
+        const auto sub = js->pullSubscribe("retain.data", streamConfig.name, consumerConfig.durable.value());
+        auto msgList = sub->fetch(10, NatsTimeout{2000});
+
+        QCOMPARE(msgList.size(), 5);
+        for (int i = 0; i < 5; i++) {
+            QCOMPARE(msgList[i].data, QByteArray::number(i + 5));
+            msgList[i].ack();
+        }
+
+        // Cleanup
+        js->deleteConsumer(streamConfig.name, consumerConfig.durable.value());
+        js->deleteStream(streamConfig.name);
+    } catch (const QException& e) {
+        QFAIL(e.what());
+    }
+}
+
+/// Verifies both discard policies: DiscardOld evicts the oldest messages when the stream is full
+/// (keeping the newest), while DiscardNew rejects new publishes once the limit is reached (keeping
+/// the oldest). Both use maxMsgs=3 and verify which messages survive after publishing 5.
+void JetStreamTestCase::discardPolicies() const {
+    try {
+        // --- DiscardOld: oldest messages are evicted ---
+        {
+            JsStreamConfig streamConfig;
+            streamConfig.name = "DISCARD_OLD_STREAM";
+            streamConfig.subjects = {"dold.>"};
+            streamConfig.storage = JsStorageType::Memory;
+            streamConfig.discard = JsDiscardPolicy::Old;
+            streamConfig.maxMsgs = 3;
+
+            JsConsumerConfig consumerConfig;
+            consumerConfig.durable = "DOLD_CONSUMER";
+            consumerConfig.ackPolicy = JsAckPolicy::None;
+
+            js->addStream(streamConfig);
+            js->addConsumer("DISCARD_OLD_STREAM", consumerConfig);
+
+            for (int i = 1; i <= 5; i++) {
+                js->publish(Message("dold.x", QByteArray::number(i)), {});
+            }
+
+            const auto oldSub = js->pullSubscribe("dold.>", streamConfig.name, consumerConfig.durable.value());
+            auto oldMsgs = oldSub->fetch(10, NatsTimeout{2000});
+
+            // Only the last 3 messages (3, 4, 5) should remain
+            QCOMPARE(oldMsgs.size(), 3);
+            QCOMPARE(oldMsgs[0].data, QByteArray("3"));
+            QCOMPARE(oldMsgs[1].data, QByteArray("4"));
+            QCOMPARE(oldMsgs[2].data, QByteArray("5"));
+
+            js->deleteStream(streamConfig.name);
+        }
+
+        // --- DiscardNew: new publishes are rejected once full ---
+        {
+            JsStreamConfig streamConfig;
+            streamConfig.name = "DISCARD_NEW_STREAM";
+            streamConfig.subjects = {"dnew.>"};
+            streamConfig.storage = JsStorageType::Memory;
+            streamConfig.discard = JsDiscardPolicy::New;
+            streamConfig.maxMsgs = 3;
+
+            JsConsumerConfig consumerConfig;
+            consumerConfig.durable = "DNEW_CONSUMER";
+            consumerConfig.ackPolicy = JsAckPolicy::None;
+
+            js->addStream(streamConfig);
+            js->addConsumer("DISCARD_NEW_STREAM", consumerConfig);
+
+            int published = 0;
+            int rejected = 0;
+            for (int i = 1; i <= 5; i++) {
+                try {
+                    js->publish(Message("dnew.x", QByteArray::number(i)), {});
+                    published++;
+                } catch (const JetStreamException&) {
+                    rejected++;
+                }
+            }
+            QCOMPARE(published, 3);
+            QCOMPARE(rejected, 2);
+
+            auto newSub = js->pullSubscribe("dnew.>", streamConfig.name, consumerConfig.durable.value());
+            auto newMsgs = newSub->fetch(10, NatsTimeout{2000});
+
+            // Only the first 3 messages (1, 2, 3) should remain
+            QCOMPARE(newMsgs.size(), 3);
+            QCOMPARE(newMsgs[0].data, QByteArray("1"));
+            QCOMPARE(newMsgs[1].data, QByteArray("2"));
+            QCOMPARE(newMsgs[2].data, QByteArray("3"));
+
+            js->deleteStream(streamConfig.name);
+        }
+    } catch (const QException& e) {
+        QFAIL(e.what());
+    }
 }
 
 // Verifies JetStream publish: a synchronous publish returns an ack with the correct stream name
