@@ -536,23 +536,13 @@ public:
 
     Client& operator=(Client&&) = delete;
 
+    // General client manipulation functions.
+
     void connectToServer(const Options& opts);
 
     void connectToServer(const QUrl& address);
 
     void close() noexcept;
-
-    void publish(const Message& msg);
-
-    Message request(const Message& msg, NatsTimeout timeout = NatsTimeout{2000});
-
-    QFuture<Message> asyncRequest(const Message& msg, NatsTimeout timeout = NatsTimeout{2000});
-
-    Subscription* subscribe(const QString& subject);
-
-    Subscription* subscribe(const QString& subject, const QString& queueGroup);
-
-    bool ping(NatsTimeout timeout = NatsTimeout{10000}) noexcept;
 
     QUrl currentServer() const;
 
@@ -562,7 +552,28 @@ public:
 
     static QByteArray newInbox();
 
+    natsConnection* getNatsConnection() const { return m_conn; }
+
+    // Functions for creating durable objects that are related to the client.
+    // The client owns these objects and will manage their lifetimes, so they are returned as raw pointers.
+
+    Subscription* subscribe(const QString& subject);
+
+    Subscription* subscribe(const QString& subject, const QString& queueGroup);
+
     JetStream* jetStream(const JsOptions& options = JsOptions());
+
+    // General messaging functions.
+
+    void publish(const Message& msg);
+
+    Message request(const Message& msg, NatsTimeout timeout = NatsTimeout{2000});
+
+    QFuture<Message> asyncRequest(const Message& msg, NatsTimeout timeout = NatsTimeout{2000});
+
+    bool ping(NatsTimeout timeout = NatsTimeout{10000}) noexcept;
+
+    // JetStream management functions.
 
     static JsStreamInfo addStream(const JetStream* js, const JsStreamConfig& config);
 
@@ -586,8 +597,6 @@ public:
         const QString& consumer,
         NatsTimePoint pauseUntil
     );
-
-    natsConnection* getNatsConnection() const { return m_conn; }
 
 Q_SIGNALS:
     void errorOccurred(natsStatus error, const QString& text);
