@@ -25,6 +25,20 @@ if(NOT cnats_FOUND)
     set(BUILD_TESTING_SAVED "${BUILD_TESTING}")
     set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
     FetchContent_Populate(cnats)
+
+    # Raise the default object-store chunk size from 128 KB to 64 MB so that
+    # single-chunk puts work for large files.  The constant is internal to
+    # nats.c; we patch it here rather than forking the library.
+    set(_obj_h "${cnats_SOURCE_DIR}/src/object.h")
+    file(READ "${_obj_h}" _obj_h_content)
+    string(REPLACE
+        "#define obsDefaultChunkSize             (uint32_t)(128 * 1024)"
+        "#define obsDefaultChunkSize             (uint32_t)(64 * 1024 * 1024)"
+        _obj_h_content "${_obj_h_content}")
+    file(WRITE "${_obj_h}" "${_obj_h_content}")
+    unset(_obj_h)
+    unset(_obj_h_content)
+
     add_subdirectory(${cnats_SOURCE_DIR} ${cnats_BINARY_DIR} EXCLUDE_FROM_ALL)
     set(BUILD_TESTING "${BUILD_TESTING_SAVED}" CACHE BOOL "" FORCE)
 
