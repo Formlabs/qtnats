@@ -74,7 +74,7 @@ void JetStreamTestCase::initTestCase() {
     config.maxMsgsPerSubject = std::nullopt;
     config.maxMsgSize = std::nullopt;
 
-    const JsStreamInfo jsStreamInfo = c.addStream(js, config);
+    const JsStreamInfo jsStreamInfo = js->addStream(config);
     QVERIFY(jsStreamInfo.config.name == config.name);
 
     natsCli.setProcessChannelMode(QProcess::ForwardedChannels);
@@ -130,7 +130,7 @@ void JetStreamTestCase::pullSubscribe() {
         config.filterSubject = "test.pull";
 
         constexpr auto streamName = "MY_STREAM";
-        const auto consumerInfo = c.addConsumer(js, streamName, config);
+        const auto consumerInfo = js->addConsumer(streamName, config);
         QVERIFY(consumerInfo.name == config.name);
 
         natsCli.setProcessChannelMode(QProcess::ForwardedChannels);
@@ -159,7 +159,7 @@ void JetStreamTestCase::pullSubscribe() {
         }
 
         // Cleanup consumer
-        c.deleteConsumer(js, streamName, config.name.value());
+        js->deleteConsumer(streamName, config.name.value());
     } catch (const QException &e) {
         QFAIL(e.what());
     }
@@ -184,7 +184,7 @@ void JetStreamTestCase::pushSubscribe() {
         config.deliverSubject = "delivery";
 
         constexpr auto streamName = "MY_STREAM";
-        const auto consumerInfo = c.addConsumer(js, streamName, config);
+        const auto consumerInfo = js->addConsumer(streamName, config);
         QVERIFY(consumerInfo.name == config.name);
 
         natsCli.setProcessChannelMode(QProcess::ForwardedChannels);
@@ -215,7 +215,7 @@ void JetStreamTestCase::pushSubscribe() {
         }
 
         // Cleanup consumer
-        c.deleteConsumer(js, streamName, config.name.value());
+        js->deleteConsumer(streamName, config.name.value());
     } catch (const QException &e) {
         QFAIL(e.what());
     }

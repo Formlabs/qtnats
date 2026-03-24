@@ -573,33 +573,6 @@ public:
 
     bool ping(NatsTimeout timeout = NatsTimeout{10000}) noexcept;
 
-    // JetStream management functions.
-
-    static JsStreamInfo addStream(const JetStream* js, const JsStreamConfig& config);
-
-    static JsStreamInfo updateStream(const JetStream* js, const JsStreamConfig& config);
-
-    static void purgeStream(const JetStream* js, const QString& stream);
-
-    static void deleteStream(const JetStream* js, const QString& stream);
-
-    static JsStreamInfo getStreamInfo(const JetStream* js, const QString& stream);
-
-    static JsConsumerInfo addConsumer(const JetStream* js, const QString& stream, const JsConsumerConfig& config);
-
-    static JsConsumerInfo updateConsumer(const JetStream* js, const QString& stream, const JsConsumerConfig& config);
-
-    static JsConsumerInfo getConsumerInfo(const JetStream* js, const QString& stream, const QString& consumer);
-
-    static void deleteConsumer(const JetStream* js, const QString& stream, const QString& consumer);
-
-    static JsConsumerPauseResponse pauseConsumer(
-        const JetStream* js,
-        const QString& stream,
-        const QString& consumer,
-        NatsTimePoint pauseUntil
-    );
-
 Q_SIGNALS:
     void errorOccurred(natsStatus error, const QString& text);
 
@@ -678,6 +651,19 @@ public:
     Subscription* subscribe(const QString& subject, const QString& stream, const QString& consumer);
 
     PullSubscription* pullSubscribe(const QString& subject, const QString& stream, const QString& consumer);
+
+    JsStreamInfo addStream(const JsStreamConfig& config) const;
+    JsStreamInfo updateStream(const JsStreamConfig& config) const;
+    void purgeStream(const QString& stream) const;
+    void deleteStream(const QString& stream) const;
+    JsStreamInfo getStreamInfo(const QString& stream) const;
+
+    JsConsumerInfo addConsumer(const QString& stream, const JsConsumerConfig& config) const;
+    JsConsumerInfo updateConsumer(const QString& stream, const JsConsumerConfig& config) const;
+    JsConsumerInfo getConsumerInfo(const QString& stream, const QString& consumer) const;
+    void deleteConsumer(const QString& stream, const QString& consumer) const;
+    JsConsumerPauseResponse pauseConsumer(const QString& stream, const QString& consumer, NatsTimePoint pauseUntil
+    ) const;
 
     jsCtx* getJsContext() const { return m_jsCtx; }
 

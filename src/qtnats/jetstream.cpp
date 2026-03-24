@@ -42,96 +42,92 @@ JetStream* Client::jetStream(const JsOptions& options) {
     return js;
 }
 
-JsStreamInfo Client::addStream(const JetStream* js, const JsStreamConfig& config) {
+JsStreamInfo JetStream::addStream(const JsStreamConfig& config) const {
     return convertAndHandle(config, [&](jsStreamConfig& jsConfig) {
         jsStreamInfo* si;
         jsErrCode jsErr = {};
-        // We'll just always use the options used to set up the JetStream
-        const natsStatus s = js_AddStream(&si, js->getJsContext(), &jsConfig, nullptr, &jsErr);
+        const natsStatus s = js_AddStream(&si, m_jsCtx, &jsConfig, nullptr, &jsErr);
         checkJsError(s, jsErr);
         return fromC(JsStreamInfoPtr(si));
     });
 }
 
-JsStreamInfo Client::updateStream(const JetStream* js, const JsStreamConfig& config) {
+JsStreamInfo JetStream::updateStream(const JsStreamConfig& config) const {
     return convertAndHandle(config, [&](jsStreamConfig& jsConfig) {
         jsStreamInfo* si;
         jsErrCode jsErr = {};
-        // We'll just always use the options used to set up the JetStream
-        const natsStatus s = js_UpdateStream(&si, js->getJsContext(), &jsConfig, nullptr, &jsErr);
+        const natsStatus s = js_UpdateStream(&si, m_jsCtx, &jsConfig, nullptr, &jsErr);
         checkJsError(s, jsErr);
         return fromC(JsStreamInfoPtr(si));
     });
 }
 
-void Client::purgeStream(const JetStream* js, const QString& stream) {
+void JetStream::purgeStream(const QString& stream) const {
     jsErrCode jsErr = {};
-    const natsStatus s = js_PurgeStream(js->getJsContext(), stream.toUtf8().constData(), nullptr, &jsErr);
+    const natsStatus s = js_PurgeStream(m_jsCtx, stream.toUtf8().constData(), nullptr, &jsErr);
     checkJsError(s, jsErr);
 }
 
-void Client::deleteStream(const JetStream* js, const QString& stream) {
+void JetStream::deleteStream(const QString& stream) const {
     jsErrCode jsErr = {};
-    const natsStatus s = js_DeleteStream(js->getJsContext(), stream.toUtf8().constData(), nullptr, &jsErr);
+    const natsStatus s = js_DeleteStream(m_jsCtx, stream.toUtf8().constData(), nullptr, &jsErr);
     checkJsError(s, jsErr);
 }
 
-JsStreamInfo Client::getStreamInfo(const JetStream* js, const QString& stream) {
+JsStreamInfo JetStream::getStreamInfo(const QString& stream) const {
     jsStreamInfo* si;
     jsErrCode jsErr = {};
-    const natsStatus s = js_GetStreamInfo(&si, js->getJsContext(), stream.toUtf8().constData(), nullptr, &jsErr);
+    const natsStatus s = js_GetStreamInfo(&si, m_jsCtx, stream.toUtf8().constData(), nullptr, &jsErr);
     checkJsError(s, jsErr);
     return fromC(JsStreamInfoPtr(si));
 }
 
-JsConsumerInfo Client::addConsumer(const JetStream* js, const QString& stream, const JsConsumerConfig& config) {
+JsConsumerInfo JetStream::addConsumer(const QString& stream, const JsConsumerConfig& config) const {
     return convertAndHandle(config, [&](jsConsumerConfig& jsConfig) {
         jsConsumerInfo* ci;
         jsErrCode jsErr = {};
-        // We'll just always use the options used to set up the JetStream
-        const natsStatus s =
-            js_AddConsumer(&ci, js->getJsContext(), stream.toUtf8().constData(), &jsConfig, nullptr, &jsErr);
+        const natsStatus s = js_AddConsumer(&ci, m_jsCtx, stream.toUtf8().constData(), &jsConfig, nullptr, &jsErr);
         checkJsError(s, jsErr);
         return fromC(JsConsumerInfoPtr(ci));
     });
 }
 
-JsConsumerInfo Client::updateConsumer(const JetStream* js, const QString& stream, const JsConsumerConfig& config) {
+JsConsumerInfo JetStream::updateConsumer(const QString& stream, const JsConsumerConfig& config) const {
     return convertAndHandle(config, [&](jsConsumerConfig& jsConfig) {
         jsConsumerInfo* ci;
         jsErrCode jsErr = {};
-        // We'll just always use the options used to set up the JetStream
-        const natsStatus s =
-            js_UpdateConsumer(&ci, js->getJsContext(), stream.toUtf8().constData(), &jsConfig, nullptr, &jsErr);
+        const natsStatus s = js_UpdateConsumer(&ci, m_jsCtx, stream.toUtf8().constData(), &jsConfig, nullptr, &jsErr);
         checkJsError(s, jsErr);
         return fromC(JsConsumerInfoPtr(ci));
     });
 }
 
-JsConsumerInfo Client::getConsumerInfo(const JetStream* js, const QString& stream, const QString& consumer) {
+JsConsumerInfo JetStream::getConsumerInfo(const QString& stream, const QString& consumer) const {
     jsConsumerInfo* ci;
     jsErrCode jsErr = {};
-    const natsStatus s = js_GetConsumerInfo(
-        &ci, js->getJsContext(), stream.toUtf8().constData(), consumer.toUtf8().constData(), nullptr, &jsErr
-    );
+    const natsStatus s =
+        js_GetConsumerInfo(&ci, m_jsCtx, stream.toUtf8().constData(), consumer.toUtf8().constData(), nullptr, &jsErr);
     checkJsError(s, jsErr);
     return fromC(JsConsumerInfoPtr(ci));
 }
 
-void Client::deleteConsumer(const JetStream* js, const QString& stream, const QString& consumer) {
+void JetStream::deleteConsumer(const QString& stream, const QString& consumer) const {
     jsErrCode jsErr = {};
-    const natsStatus s = js_DeleteConsumer(
-        js->getJsContext(), stream.toUtf8().constData(), consumer.toUtf8().constData(), nullptr, &jsErr
-    );
+    const natsStatus s =
+        js_DeleteConsumer(m_jsCtx, stream.toUtf8().constData(), consumer.toUtf8().constData(), nullptr, &jsErr);
     checkJsError(s, jsErr);
 }
 
-JsConsumerPauseResponse Client::pauseConsumer(const JetStream* js, const QString& stream, const QString& consumer, NatsTimePoint pauseUntil) {
+JsConsumerPauseResponse JetStream::pauseConsumer(
+    const QString& stream,
+    const QString& consumer,
+    const NatsTimePoint pauseUntil
+) const {
     jsConsumerPauseResponse* resp;
     jsErrCode jsErr = {};
     const natsStatus s = js_PauseConsumer(
         &resp,
-        js->getJsContext(),
+        m_jsCtx,
         stream.toUtf8().constData(),
         consumer.toUtf8().constData(),
         pauseUntil.time_since_epoch().count(),
