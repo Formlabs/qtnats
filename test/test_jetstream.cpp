@@ -25,7 +25,6 @@
 
 #include <QtTest>
 
-using namespace std;
 using namespace QtNats;
 
 template<typename T>
@@ -40,37 +39,58 @@ class JetStreamTestCase : public QObject {
     QProcess natsServer;
     QProcess natsCli;
 
+    std::unique_ptr<Client> client;
+    JetStream* js = nullptr;
+
 private Q_SLOTS:
     void initTestCase();
-
     void cleanupTestCase();
 
+    void streamManagement() const;
+    void maxMsgsRetention() const;
+    void discardPolicies() const;
     void publish();
-
     void pullSubscribe();
-
     void pushSubscribe();
 };
 
 void JetStreamTestCase::initTestCase() {
-    // It might be nice to use something like CMRC to statically link the test config files; that's another dependency
-    // though, so for now we'll just verify that the directory actually exists.
-    QVERIFY2(
-        QDir::setCurrent("../qtnats/test"),
-        "Could not find test directory — run the test binary from the build directory, or update the path to match "
-        "your build directory"
-    );
-
-    connect(&natsServer, &QProcess::stateChanged, [](QProcess::ProcessState newState) {
-        cout << "nats-server: " << qPrintable(enumToString(newState)) << endl;
+    connect(&natsServer, &QProcess::stateChanged, [](const QProcess::ProcessState newState) {
+        std::cout << "nats-server: " << qPrintable(enumToString(newState)) << std::endl;
     });
 
     natsServer.start("nats-server", QStringList() << "-js");
     natsServer.waitForStarted();
     QTest::qWait(1000);
 
-    natsCli.start("nats", QStringList() << "stream" << "add" << "--config=stream_config.json");
-    natsCli.waitForFinished();
+    client = std::make_unique<Client>();
+    client->connectToServer(QUrl("nats://localhost:4222"));
+    js = client->jetStream();
+
+    connect(js, &JetStream::errorOccurred, [](natsStatus, jsErrCode, const QString &text, const Message&) {
+        std::cout << "JS error: " << qPrintable(text) << std::endl;
+    });
+
+    JsStreamConfig config;
+    config.name = "MY_STREAM";
+    config.subjects = {"test.*"};
+    config.retention = JsRetentionPolicy::Limits;
+    config.discard = JsDiscardPolicy::Old;
+    config.storage = JsStorageType::Memory;
+    config.maxConsumers = std::nullopt;
+    config.maxMsgs = std::nullopt;
+    config.maxBytes = std::nullopt;
+    config.maxAge = std::nullopt;
+    config.maxMsgsPerSubject = std::nullopt;
+    config.maxMsgSize = std::nullopt;
+
+    const JsStreamInfo jsStreamInfo = js->addStream(config);
+    QVERIFY(jsStreamInfo.config.name == config.name);
+
+    natsCli.setProcessChannelMode(QProcess::ForwardedChannels);
+    natsCli.start("nats", QStringList() << "stream" << "info" << config.name);
+    QVERIFY2(natsCli.waitForFinished(), qPrintable(natsCli.errorString()));
+    QVERIFY2(natsCli.exitCode() == 0, "nats CLI failed (see output above)");
 }
 
 void JetStreamTestCase::cleanupTestCase() {
@@ -78,23 +98,173 @@ void JetStreamTestCase::cleanupTestCase() {
     natsServer.waitForFinished();
 }
 
+/// Verifies stream CRUD: create a stream and inspect its config, update maxMsgs, delete it, and
+/// confirm that deleting a non-existent stream returns false.
+void JetStreamTestCase::streamManagement() const {
+    try {
+        // Create
+        JsStreamConfig config;
+        config.name = "MGMT_STREAM";
+        config.subjects = {"mgmt.>"};
+        config.storage = JsStorageType::Memory;
+
+        const auto info = js->addStream(config);
+        QCOMPARE(info.config.name, config.name);
+        QCOMPARE(info.config.subjects.size(), config.subjects.size());
+        QCOMPARE(info.config.subjects[0], config.subjects[0]);
+        QCOMPARE(info.config.storage, config.storage);
+
+        // Update — change max messages
+        config.maxMsgs = 1000;
+        const auto updatedInfo = js->updateStream(config);
+        QCOMPARE(updatedInfo.config.maxMsgs, config.maxMsgs);
+
+        // Delete
+        js->deleteStream("MGMT_STREAM");
+
+        // Deleting a non-existent stream should throw
+        QVERIFY_THROWS_EXCEPTION(QtNats::JetStreamException, js->deleteStream("MGMT_STREAM"));
+    } catch (const QException& e) {
+        QFAIL(e.what());
+    }
+}
+
+/// Verifies the discard-old retention policy: a stream with maxMsgs=5 evicts the oldest messages
+/// when more than 5 are published, leaving only the most recent 5 retrievable.
+void JetStreamTestCase::maxMsgsRetention() const {
+    try {
+        // Create a stream that retains at most 5 messages
+        JsStreamConfig streamConfig;
+        streamConfig.name = "RETENTION_STREAM";
+        streamConfig.subjects = {"retain.>"};
+        streamConfig.storage = JsStorageType::Memory;
+        streamConfig.maxMsgs = 5;
+
+        const auto info = js->addStream(streamConfig);
+        QCOMPARE(info.config.maxMsgs, 5);
+
+        // Create a consumer so we can inspect what's in the stream
+        JsConsumerConfig consumerConfig;
+        consumerConfig.durable = "RETENTION_CONSUMER";
+        consumerConfig.ackPolicy = JsAckPolicy::Explicit;
+        consumerConfig.filterSubject = "retain.data";
+        js->addConsumer("RETENTION_STREAM", consumerConfig);
+
+        // Publish 10 messages — the first 5 should be evicted
+        for (int i = 0; i < 10; i++) {
+            js->publish(Message("retain.data", QByteArray::number(i)), {});
+        }
+
+        // Fetch all available messages — should be exactly the last 5
+        const auto sub = js->pullSubscribe("retain.data", streamConfig.name, consumerConfig.durable.value());
+        auto msgList = sub->fetch(10, NatsTimeout{2000});
+
+        QCOMPARE(msgList.size(), 5);
+        for (int i = 0; i < 5; i++) {
+            QCOMPARE(msgList[i].data, QByteArray::number(i + 5));
+            msgList[i].ack();
+        }
+
+        // Cleanup
+        js->deleteConsumer(streamConfig.name, consumerConfig.durable.value());
+        js->deleteStream(streamConfig.name);
+    } catch (const QException& e) {
+        QFAIL(e.what());
+    }
+}
+
+/// Verifies both discard policies: DiscardOld evicts the oldest messages when the stream is full
+/// (keeping the newest), while DiscardNew rejects new publishes once the limit is reached (keeping
+/// the oldest). Both use maxMsgs=3 and verify which messages survive after publishing 5.
+void JetStreamTestCase::discardPolicies() const {
+    try {
+        // --- DiscardOld: oldest messages are evicted ---
+        {
+            JsStreamConfig streamConfig;
+            streamConfig.name = "DISCARD_OLD_STREAM";
+            streamConfig.subjects = {"dold.>"};
+            streamConfig.storage = JsStorageType::Memory;
+            streamConfig.discard = JsDiscardPolicy::Old;
+            streamConfig.maxMsgs = 3;
+
+            JsConsumerConfig consumerConfig;
+            consumerConfig.durable = "DOLD_CONSUMER";
+            consumerConfig.ackPolicy = JsAckPolicy::None;
+
+            js->addStream(streamConfig);
+            js->addConsumer("DISCARD_OLD_STREAM", consumerConfig);
+
+            for (int i = 1; i <= 5; i++) {
+                js->publish(Message("dold.x", QByteArray::number(i)), {});
+            }
+
+            const auto oldSub = js->pullSubscribe("dold.>", streamConfig.name, consumerConfig.durable.value());
+            auto oldMsgs = oldSub->fetch(10, NatsTimeout{2000});
+
+            // Only the last 3 messages (3, 4, 5) should remain
+            QCOMPARE(oldMsgs.size(), 3);
+            QCOMPARE(oldMsgs[0].data, QByteArray("3"));
+            QCOMPARE(oldMsgs[1].data, QByteArray("4"));
+            QCOMPARE(oldMsgs[2].data, QByteArray("5"));
+
+            js->deleteStream(streamConfig.name);
+        }
+
+        // --- DiscardNew: new publishes are rejected once full ---
+        {
+            JsStreamConfig streamConfig;
+            streamConfig.name = "DISCARD_NEW_STREAM";
+            streamConfig.subjects = {"dnew.>"};
+            streamConfig.storage = JsStorageType::Memory;
+            streamConfig.discard = JsDiscardPolicy::New;
+            streamConfig.maxMsgs = 3;
+
+            JsConsumerConfig consumerConfig;
+            consumerConfig.durable = "DNEW_CONSUMER";
+            consumerConfig.ackPolicy = JsAckPolicy::None;
+
+            js->addStream(streamConfig);
+            js->addConsumer("DISCARD_NEW_STREAM", consumerConfig);
+
+            int published = 0;
+            int rejected = 0;
+            for (int i = 1; i <= 5; i++) {
+                try {
+                    js->publish(Message("dnew.x", QByteArray::number(i)), {});
+                    published++;
+                } catch (const JetStreamException&) {
+                    rejected++;
+                }
+            }
+            QCOMPARE(published, 3);
+            QCOMPARE(rejected, 2);
+
+            auto newSub = js->pullSubscribe("dnew.>", streamConfig.name, consumerConfig.durable.value());
+            auto newMsgs = newSub->fetch(10, NatsTimeout{2000});
+
+            // Only the first 3 messages (1, 2, 3) should remain
+            QCOMPARE(newMsgs.size(), 3);
+            QCOMPARE(newMsgs[0].data, QByteArray("1"));
+            QCOMPARE(newMsgs[1].data, QByteArray("2"));
+            QCOMPARE(newMsgs[2].data, QByteArray("3"));
+
+            js->deleteStream(streamConfig.name);
+        }
+    } catch (const QException& e) {
+        QFAIL(e.what());
+    }
+}
+
+// Verifies JetStream publish: a synchronous publish returns an ack with the correct stream name
+// and a positive sequence number, and five async publishes complete without error.
 void JetStreamTestCase::publish() {
     try {
-        Client c;
-        c.connectToServer(QUrl("nats://localhost:4222"));
+        auto [stream, sequence, domain, duplicate] = js->publish(Message("test.1", "HI"), {});
 
-        auto js = c.jetStream();
-
-        connect(js, &JetStream::errorOccurred, [](natsStatus error, jsErrCode jsErr, const QString &text, Message msg) {
-            cout << "JS error: " << qPrintable(text) << endl;
-        });
-
-        auto ack = js->publish(Message("test.1", "HI"), {});
-
-        QCOMPARE(ack.stream, "MY_STREAM");
+        QCOMPARE(stream, "MY_STREAM");
 
         for (int i = 0; i < 5; i++) {
-            js->asyncPublish(Message("test.1", "HI"), {.timeout = 1000});
+            js->asyncPublish(Message("test.1", "HI"), {.timeout = NatsTimeout{1000}});
         }
         js->waitForPublishCompleted();
     } catch (const QException &e) {
@@ -104,56 +274,73 @@ void JetStreamTestCase::publish() {
 
 void JetStreamTestCase::pullSubscribe() {
     try {
-        Client c;
-        c.connectToServer(QUrl("nats://localhost:4222"));
+        JsConsumerConfig config;
+        config.name = "PULL_CONSUMER";
+        config.deliverPolicy = JsDeliverPolicy::All;
+        config.ackPolicy = JsAckPolicy::Explicit;
+        config.replayPolicy = JsReplayPolicy::Instant;
+        config.maxDeliver = 5;
+        config.filterSubject = "test.pull";
 
-        auto js = c.jetStream();
+        constexpr auto streamName = "MY_STREAM";
+        const auto consumerInfo = js->addConsumer(streamName, config);
+        QVERIFY(consumerInfo.name == config.name);
 
-        natsCli.start(
-            "nats",
-            QStringList() << "consumer" << "add" << "MY_STREAM" << "PULL_CONSUMER" <<
-            "--config=pull_consumer_config.json");
-        natsCli.waitForFinished();
+        natsCli.setProcessChannelMode(QProcess::ForwardedChannels);
+        natsCli.start("nats", QStringList() << "consumer" << "info" << streamName << config.name.value());
+        QVERIFY2(natsCli.waitForFinished(), qPrintable(natsCli.errorString()));
+        QVERIFY2(natsCli.exitCode() == 0, "nats CLI failed (see output above)");
 
-        natsCli.start(
-            "nats", QStringList() << "publish" << "--count=10" << "-H" << "hdr1:val1" << "test.pull" << "hello JS");
-        natsCli.waitForFinished();
-
-        auto sub = js->pullSubscribe("test.pull", "MY_STREAM", "PULL_CONSUMER");
-
-        auto msgList = sub->fetch(10);
-
-        for (Message m: msgList) {
-            m.ack();
+        // Publish messages with headers
+        const Message pubMessage{"test.pull", "hello JS", {{"hdr1", "val1"}}};
+        for (auto i = 0; i < 10; i++) {
+            client->publish(pubMessage);
         }
 
+        // Pull subscribe and fetch
+        const auto sub = js->pullSubscribe("test.pull", streamName, config.name.value());
+        auto msgList = sub->fetch(10);
+
         QCOMPARE(msgList.size(), 10);
-        for (Message m: msgList) {
+        for (const Message m: msgList) {
             QCOMPARE(m.data, "hello JS");
             QCOMPARE(m.subject, "test.pull");
             auto val = m.headers.values("hdr1");
             QCOMPARE(val.size(), 1);
             QCOMPARE(val[0], "val1");
+            m.ack();
         }
+
+        // Cleanup consumer
+        js->deleteConsumer(streamName, config.name.value());
     } catch (const QException &e) {
         QFAIL(e.what());
     }
 }
 
+/// Verifies push-based consumption: programmatically creates a durable push consumer with a deliver
+/// subject, subscribes via Qt signal, publishes 10 messages, and confirms all are delivered.
 void JetStreamTestCase::pushSubscribe() {
     try {
-        Client c;
-        c.connectToServer(QUrl("nats://localhost:4222"));
+        JsConsumerConfig config;
+        config.name = "PUSH_CONSUMER";
+        config.deliverPolicy = JsDeliverPolicy::Last;
+        config.ackPolicy = JsAckPolicy::None;
+        config.replayPolicy = JsReplayPolicy::Instant;
+        config.maxDeliver = 5;
+        config.filterSubject = "test.push";
+        config.deliverSubject = "delivery";
 
-        auto js = c.jetStream();
+        constexpr auto streamName = "MY_STREAM";
+        const auto consumerInfo = js->addConsumer(streamName, config);
+        QVERIFY(consumerInfo.name == config.name);
 
-        natsCli.start(
-            "nats",
-            QStringList() << "consumer" << "add" << "MY_STREAM" << "PUSH_CONSUMER" <<
-            "--config=push_consumer_config.json");
-        natsCli.waitForFinished();
+        natsCli.setProcessChannelMode(QProcess::ForwardedChannels);
+        natsCli.start("nats", QStringList() << "consumer" << "info" << streamName << config.name.value());
+        QVERIFY2(natsCli.waitForFinished(), qPrintable(natsCli.errorString()));
+        QVERIFY2(natsCli.exitCode() == 0, "nats CLI failed (see output above)");
 
-        auto sub = js->subscribe("test.push", "MY_STREAM", "PUSH_CONSUMER");
+        const auto sub = js->subscribe("test.push", streamName, config.name.value());
         // can we miss a message if "connect" is not fast enough?
         // apparently, consumer's deliver_subject does not matter here
         QList<Message> msgList;
@@ -161,16 +348,22 @@ void JetStreamTestCase::pushSubscribe() {
             msgList += message;
         });
 
-        natsCli.start("nats", QStringList() << "publish" << "--count=10" << "test.push" << "hello JS again");
-        natsCli.waitForFinished();
+        // Publish messages
+        const Message pubMessage{"test.push", "hello JS again"};
+        for (auto i = 0; i < 10; i++) {
+            client->publish(pubMessage);
+        }
 
         QTest::qWait(1000);
 
         QCOMPARE(msgList.size(), 10);
-        for (Message m: msgList) {
+        for (const Message m: msgList) {
             QCOMPARE(m.data, "hello JS again");
             QCOMPARE(m.subject, "test.push");
         }
+
+        // Cleanup consumer
+        js->deleteConsumer(streamName, config.name.value());
     } catch (const QException &e) {
         QFAIL(e.what());
     }

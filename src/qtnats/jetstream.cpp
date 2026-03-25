@@ -42,8 +42,104 @@ JetStream* Client::jetStream(const JsOptions& options) {
     return js;
 }
 
+JsStreamInfo JetStream::addStream(const JsStreamConfig& config) const {
+    return convertAndHandle(config, [&](jsStreamConfig& jsConfig) {
+        jsStreamInfo* si;
+        jsErrCode jsErr = {};
+        const natsStatus s = js_AddStream(&si, m_jsCtx, &jsConfig, nullptr, &jsErr);
+        checkJsError(s, jsErr);
+        return fromC(JsStreamInfoPtr(si));
+    });
+}
+
+JsStreamInfo JetStream::updateStream(const JsStreamConfig& config) const {
+    return convertAndHandle(config, [&](jsStreamConfig& jsConfig) {
+        jsStreamInfo* si;
+        jsErrCode jsErr = {};
+        const natsStatus s = js_UpdateStream(&si, m_jsCtx, &jsConfig, nullptr, &jsErr);
+        checkJsError(s, jsErr);
+        return fromC(JsStreamInfoPtr(si));
+    });
+}
+
+void JetStream::purgeStream(const QString& stream) const {
+    jsErrCode jsErr = {};
+    const natsStatus s = js_PurgeStream(m_jsCtx, stream.toUtf8().constData(), nullptr, &jsErr);
+    checkJsError(s, jsErr);
+}
+
+void JetStream::deleteStream(const QString& stream) const {
+    jsErrCode jsErr = {};
+    const natsStatus s = js_DeleteStream(m_jsCtx, stream.toUtf8().constData(), nullptr, &jsErr);
+    checkJsError(s, jsErr);
+}
+
+JsStreamInfo JetStream::getStreamInfo(const QString& stream) const {
+    jsStreamInfo* si;
+    jsErrCode jsErr = {};
+    const natsStatus s = js_GetStreamInfo(&si, m_jsCtx, stream.toUtf8().constData(), nullptr, &jsErr);
+    checkJsError(s, jsErr);
+    return fromC(JsStreamInfoPtr(si));
+}
+
+JsConsumerInfo JetStream::addConsumer(const QString& stream, const JsConsumerConfig& config) const {
+    return convertAndHandle(config, [&](jsConsumerConfig& jsConfig) {
+        jsConsumerInfo* ci;
+        jsErrCode jsErr = {};
+        const natsStatus s = js_AddConsumer(&ci, m_jsCtx, stream.toUtf8().constData(), &jsConfig, nullptr, &jsErr);
+        checkJsError(s, jsErr);
+        return fromC(JsConsumerInfoPtr(ci));
+    });
+}
+
+JsConsumerInfo JetStream::updateConsumer(const QString& stream, const JsConsumerConfig& config) const {
+    return convertAndHandle(config, [&](jsConsumerConfig& jsConfig) {
+        jsConsumerInfo* ci;
+        jsErrCode jsErr = {};
+        const natsStatus s = js_UpdateConsumer(&ci, m_jsCtx, stream.toUtf8().constData(), &jsConfig, nullptr, &jsErr);
+        checkJsError(s, jsErr);
+        return fromC(JsConsumerInfoPtr(ci));
+    });
+}
+
+JsConsumerInfo JetStream::getConsumerInfo(const QString& stream, const QString& consumer) const {
+    jsConsumerInfo* ci;
+    jsErrCode jsErr = {};
+    const natsStatus s =
+        js_GetConsumerInfo(&ci, m_jsCtx, stream.toUtf8().constData(), consumer.toUtf8().constData(), nullptr, &jsErr);
+    checkJsError(s, jsErr);
+    return fromC(JsConsumerInfoPtr(ci));
+}
+
+void JetStream::deleteConsumer(const QString& stream, const QString& consumer) const {
+    jsErrCode jsErr = {};
+    const natsStatus s =
+        js_DeleteConsumer(m_jsCtx, stream.toUtf8().constData(), consumer.toUtf8().constData(), nullptr, &jsErr);
+    checkJsError(s, jsErr);
+}
+
+JsConsumerPauseResponse JetStream::pauseConsumer(
+    const QString& stream,
+    const QString& consumer,
+    const NatsTimePoint pauseUntil
+) const {
+    jsConsumerPauseResponse* resp;
+    jsErrCode jsErr = {};
+    const natsStatus s = js_PauseConsumer(
+        &resp,
+        m_jsCtx,
+        stream.toUtf8().constData(),
+        consumer.toUtf8().constData(),
+        pauseUntil.time_since_epoch().count(),
+        nullptr,
+        &jsErr
+    );
+    checkJsError(s, jsErr);
+    return fromC(JsConsumerPauseResponsePtr(resp));
+}
+
 void Message::ack() const {
-    jsErrCode jsErr;
+    jsErrCode jsErr = {};
     const natsStatus s = natsMsg_AckSync(m_natsMsg.get(), nullptr, &jsErr);
     checkJsError(s, jsErr);
 }
@@ -64,11 +160,11 @@ void Message::terminate() const { checkError(natsMsg_Term(m_natsMsg.get(), nullp
 
 PullSubscription::~PullSubscription() noexcept { natsSubscription_Destroy(m_sub); }
 
-QList<Message> PullSubscription::fetch(const int batch, const int64_t timeout) const {
+QList<Message> PullSubscription::fetch(const int batch, const NatsTimeout timeout) const {
     // see also https://github.com/nats-io/nats.c/issues/545
     natsMsgList list{nullptr, 0};
-    jsErrCode jsErr;
-    const natsStatus s = natsSubscription_Fetch(&list, m_sub, batch, timeout, &jsErr);
+    jsErrCode jsErr = {};
+    const natsStatus s = natsSubscription_Fetch(&list, m_sub, batch, timeout.count(), &jsErr);
     checkJsError(s, jsErr);
     QList<Message> result;
     for (int i = 0; i < list.Count; i++) {
@@ -90,7 +186,7 @@ void JetStream::asyncPublish(const Message& msg, const JsPublishOptions& opts) c
     convertAndHandle(opts, [&](jsPubOptions& jsOpts) { doAsyncPublish(msg, &jsOpts); });
 }
 
-void JetStream::waitForPublishCompleted(const std::optional<int64_t> timeout) const {
+void JetStream::waitForPublishCompleted(const std::optional<NatsTimeout> timeout) const {
     natsStatus s = NATS_OK;
 
     if (timeout.has_value()) {

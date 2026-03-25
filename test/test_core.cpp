@@ -103,7 +103,7 @@ void CoreTestCase::request() {
         QTest::qWait(1000);
 
         for (int i = 0; i < 100; i++) {
-            Message response = c.request(Message("service", "foo"), 1000);
+            Message response = c.request(Message("service", "foo"), std::chrono::milliseconds{1000});
             QCOMPARE(response.data, "bla");
         }
     } catch (const QException& e) {
