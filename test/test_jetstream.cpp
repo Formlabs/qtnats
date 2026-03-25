@@ -67,6 +67,10 @@ void JetStreamTestCase::initTestCase() {
     client->connectToServer(QUrl("nats://localhost:4222"));
     js = client->jetStream();
 
+    connect(js, &JetStream::errorOccurred, [](natsStatus, jsErrCode, const QString &text, const Message&) {
+        std::cout << "JS error: " << qPrintable(text) << std::endl;
+    });
+
     JsStreamConfig config;
     config.name = "MY_STREAM";
     config.subjects = {"test.*"};
@@ -255,13 +259,9 @@ void JetStreamTestCase::discardPolicies() const {
 // and a positive sequence number, and five async publishes complete without error.
 void JetStreamTestCase::publish() {
     try {
-        connect(js, &JetStream::errorOccurred, [](natsStatus error, jsErrCode jsErr, const QString &text, Message msg) {
-            std::cout << "JS error: " << qPrintable(text) << std::endl;
-        });
+        auto [stream, sequence, domain, duplicate] = js->publish(Message("test.1", "HI"), {});
 
-        auto ack = js->publish(Message("test.1", "HI"), {});
-
-        QCOMPARE(ack.stream, "MY_STREAM");
+        QCOMPARE(stream, "MY_STREAM");
 
         for (int i = 0; i < 5; i++) {
             js->asyncPublish(Message("test.1", "HI"), {.timeout = NatsTimeout{1000}});
