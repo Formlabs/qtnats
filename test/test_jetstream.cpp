@@ -118,7 +118,7 @@ void JetStreamTestCase::streamManagement() const {
         // Delete
         js->deleteStream("MGMT_STREAM");
 
-        // Deleting a non-existant stream should throw
+        // Deleting a non-existent stream should throw
         QVERIFY_THROWS_EXCEPTION(QtNats::JetStreamException, js->deleteStream("MGMT_STREAM"));
     } catch (const QException& e) {
         QFAIL(e.what());

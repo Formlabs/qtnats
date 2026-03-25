@@ -662,7 +662,10 @@ public:
     JsConsumerInfo updateConsumer(const QString& stream, const JsConsumerConfig& config) const;
     JsConsumerInfo getConsumerInfo(const QString& stream, const QString& consumer) const;
     void deleteConsumer(const QString& stream, const QString& consumer) const;
-    JsConsumerPauseResponse pauseConsumer(const QString& stream, const QString& consumer, NatsTimePoint pauseUntil
+    JsConsumerPauseResponse pauseConsumer(
+        const QString& stream,
+        const QString& consumer,
+        NatsTimePoint pauseUntil
     ) const;
 
     jsCtx* getJsContext() const { return m_jsCtx; }
