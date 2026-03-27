@@ -757,6 +757,8 @@ public:
 
     ObjectStore& operator=(ObjectStore&&) = delete;
 
+    [[nodiscard]] ObjStoreInfo putString(const QString& name, const QString& data) const;
+
 private:
     ObjectStore(QObject* parent) : QObject(parent) {}
 

@@ -285,3 +285,9 @@ void JetStream::doAsyncPublish(const Message& msg, jsPubOptions* opts) const {
 }
 
 ObjectStore::~ObjectStore() noexcept { objStore_Destroy(m_objStore); }
+
+ObjStoreInfo ObjectStore::putString(const QString& name, const QString& data) const {
+    objStoreInfo* info;
+    checkError(objStore_PutString(&info, m_objStore, name.toUtf8().constData(), data.toUtf8().constData()));
+    return fromC(ObjStoreInfoPtr(info));
+}
