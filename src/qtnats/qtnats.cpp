@@ -39,36 +39,41 @@ static const int messageTypeId = qRegisterMetaType<Message>();
 // =============================================================================
 #pragma region Data types
 
-Message::Message(natsMsg* msg) noexcept : m_natsMsg(msg, &natsMsg_Destroy) {
-    subject = QString::fromUtf8(natsMsg_GetSubject(msg));
-    data = QByteArray(natsMsg_GetData(msg), natsMsg_GetDataLength(msg));
-    reply = QByteArray(natsMsg_GetReply(msg));
+MessageHeaders Message::readHeaders(natsMsg* msg) {
+    MessageHeaders result;
 
     const char** keys = nullptr;
     int keyCount = 0;
-
     natsStatus s = natsMsgHeader_Keys(msg, &keys, &keyCount);
     if (s != NATS_OK || keyCount == 0)
-        return;
+        return result;
 
-    // handle message headers
     for (int i = 0; i < keyCount; i++) {
         const char** values = nullptr;
+
         int valueCount = 0;
         s = natsMsgHeader_Values(msg, keys[i], &values, &valueCount);
         if (s != NATS_OK)
             continue;
-        const QString key = QString::fromUtf8(keys[i]);
 
-        for (int j = 0; j < valueCount; j++) {
-            const QByteArray value(values[j]);
-            headers.insert(key, value);
-        }
+        const QString key = QString::fromUtf8(keys[i]);
+        for (int j = 0; j < valueCount; j++)
+            result.insert(key, QByteArray(values[j]));
+
         free(values);
     }
 
     free(keys);
-};
+
+    return result;
+}
+
+Message::Message(natsMsg* msg) noexcept
+    : subject{QString::fromUtf8(natsMsg_GetSubject(msg))}
+    , reply{QByteArray(natsMsg_GetReply(msg))}
+    , data{QByteArray(natsMsg_GetData(msg), natsMsg_GetDataLength(msg))}
+    , headers{readHeaders(msg)}
+    , m_natsMsg{msg, &natsMsg_Destroy} {}
 
 #pragma endregion
 

@@ -456,7 +456,7 @@ struct QTNATS_EXPORT Message {
         , data{std::move(data)}
         , headers{std::move(headers)} {}
 
-    explicit Message(natsMsg* cmsg) noexcept;
+    explicit Message(natsMsg* msg) noexcept;
 
     [[nodiscard]] bool isIncoming() const { return static_cast<bool>(m_natsMsg); }
 
@@ -476,6 +476,7 @@ struct QTNATS_EXPORT Message {
     MessageHeaders headers;
 
 private:
+    static MessageHeaders readHeaders(natsMsg* msg);
     std::shared_ptr<natsMsg> m_natsMsg;
 };
 
