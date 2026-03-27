@@ -105,14 +105,14 @@ inline std::optional<NatsTimePoint> toOptionalTimePoint(const int64_t ns) {
 struct JsPubAckDeleter {
     void operator()(jsPubAck* p) const { jsPubAck_Destroy(p); }
 };
-struct JsStreamInfoDeleter {
-    void operator()(jsStreamInfo* p) const { jsStreamInfo_Destroy(p); }
-};
 struct JsConsumerInfoDeleter {
     void operator()(jsConsumerInfo* p) const { jsConsumerInfo_Destroy(p); }
 };
 struct JsConsumerPauseResponseDeleter {
     void operator()(jsConsumerPauseResponse* p) const { jsConsumerPauseResponse_Destroy(p); }
+};
+struct JsStreamInfoDeleter {
+    void operator()(jsStreamInfo* p) const { jsStreamInfo_Destroy(p); }
 };
 struct NatsMsgDeleter {
     void operator()(natsMsg* p) const { natsMsg_Destroy(p); }
@@ -120,38 +120,37 @@ struct NatsMsgDeleter {
 struct NatsOptsDeleter {
     void operator()(natsOptions* p) const { natsOptions_Destroy(p); }
 };
-using JsPubAckPtr = std::unique_ptr<jsPubAck, JsPubAckDeleter>;
-using JsStreamInfoPtr = std::unique_ptr<jsStreamInfo, JsStreamInfoDeleter>;
 using JsConsumerInfoPtr = std::unique_ptr<jsConsumerInfo, JsConsumerInfoDeleter>;
 using JsConsumerPauseResponsePtr = std::unique_ptr<jsConsumerPauseResponse, JsConsumerPauseResponseDeleter>;
+using JsPubAckPtr = std::unique_ptr<jsPubAck, JsPubAckDeleter>;
+using JsStreamInfoPtr = std::unique_ptr<jsStreamInfo, JsStreamInfoDeleter>;
 using NatsMsgPtr = std::unique_ptr<natsMsg, NatsMsgDeleter>;
 using NatsOptsPtr = std::unique_ptr<natsOptions, NatsOptsDeleter>;
 
-JsPublishAck fromC(const JsPubAckPtr& ack);
-Message fromC(NatsMsgPtr msg);
-
-NatsMetadata fromC(const natsMetadata& meta);
+JsClusterInfo fromC(const jsClusterInfo& cluster);
+JsConsumerConfig fromC(const jsConsumerConfig& cfg);
+JsConsumerInfo fromC(const JsConsumerInfoPtr& info);
+JsConsumerPauseResponse fromC(const JsConsumerPauseResponsePtr& resp);
 JsExternalStream fromC(const jsExternalStream& ext);
-JsSubjectTransformConfig fromC(const jsSubjectTransformConfig& st);
-JsStreamConsumerLimits fromC(const jsStreamConsumerLimits& lim);
-JsStreamSource fromC(const jsStreamSource& src);
-JsPlacement fromC(const jsPlacement& p);
-JsRePublish fromC(const jsRePublish& rp);
-JsStreamConfig fromC(const jsStreamConfig& cfg);
 JsLostStreamData fromC(const jsLostStreamData& lost);
+JsPeerInfo fromC(const jsPeerInfo& peer);
+JsPlacement fromC(const jsPlacement& p);
+JsPublishAck fromC(const JsPubAckPtr& ack);
+JsRePublish fromC(const jsRePublish& rp);
+JsSequenceInfo fromC(const jsSequenceInfo& seq);
+JsSequencePair fromC(const jsSequencePair& seq);
+JsStreamAlternate fromC(const jsStreamAlternate& alt);
+JsStreamConfig fromC(const jsStreamConfig& cfg);
+JsStreamConsumerLimits fromC(const jsStreamConsumerLimits& lim);
+JsStreamInfo fromC(const JsStreamInfoPtr& info);
+JsStreamSource fromC(const jsStreamSource& src);
+JsStreamSourceInfo fromC(const jsStreamSourceInfo& src);
+JsStreamState fromC(const jsStreamState& state);
 JsStreamStateSubject fromC(const jsStreamStateSubject& subj);
 QList<JsStreamStateSubject> fromC(const jsStreamStateSubjects& subjs);
-JsStreamState fromC(const jsStreamState& state);
-JsPeerInfo fromC(const jsPeerInfo& peer);
-JsClusterInfo fromC(const jsClusterInfo& cluster);
-JsStreamSourceInfo fromC(const jsStreamSourceInfo& src);
-JsStreamAlternate fromC(const jsStreamAlternate& alt);
-JsStreamInfo fromC(const JsStreamInfoPtr& info);
-JsConsumerPauseResponse fromC(const JsConsumerPauseResponsePtr& resp);
-JsConsumerConfig fromC(const jsConsumerConfig& cfg);
-JsSequencePair fromC(const jsSequencePair& seq);
-JsSequenceInfo fromC(const jsSequenceInfo& seq);
-JsConsumerInfo fromC(const JsConsumerInfoPtr& info);
+JsSubjectTransformConfig fromC(const jsSubjectTransformConfig& st);
+Message fromC(NatsMsgPtr msg);
+NatsMetadata fromC(const natsMetadata& meta);
 
 // Probe functor used by convertAndHandleAll to deduce CType without a runtime call.
 // A lambda would be simpler ([](auto& c) { return &c; }) but lambdas in unevaluated
