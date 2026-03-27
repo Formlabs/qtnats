@@ -31,6 +31,35 @@ void subscriptionCallback(natsConnection* /*nc*/, natsSubscription* /*sub*/, nat
     Q_EMIT sub->received(m);
 }
 
+MessageHeaders readHeaderFields(const HeaderKeysFn& getKeys, const HeaderValuesFn& getValues) {
+    MessageHeaders result;
+
+    const char** keys = nullptr;
+    int keyCount = 0;
+    switch (const natsStatus s = getKeys(&keys, &keyCount)) {
+    case NATS_OK:
+    case NATS_NOT_FOUND: // Apparently if there are no headers, NOT_FOUND comes back instead of a keycount of 0
+        break;
+    default:
+        checkError(s);
+    }
+
+    for (int i = 0; i < keyCount; i++) {
+        const char** values = nullptr;
+        int valueCount = 0;
+        checkError(getValues(keys[i], &values, &valueCount));
+
+        const QString key = QString::fromUtf8(keys[i]);
+        for (int j = 0; j < valueCount; j++)
+            result.insert(key, QByteArray(values[j]));
+
+        free(values);
+    }
+
+    free(keys);
+    return result;
+}
+
 JsClusterInfo fromC(const jsClusterInfo& cluster) {
     JsClusterInfo result;
     result.name = toOptionalQString(cluster.Name);

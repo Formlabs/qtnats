@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <functional>
 #include <list>
 #include <type_traits>
 
@@ -99,6 +100,12 @@ inline NatsTimePoint toTimePoint(const int64_t ns) { return NatsTimePoint{NatsDu
 inline std::optional<NatsTimePoint> toOptionalTimePoint(const int64_t ns) {
     return ns > 0 ? std::optional(NatsTimePoint{NatsDuration{ns}}) : std::nullopt;
 };
+
+// Common header-reading loop shared by fromC(natsHeader*) and Message::readHeaders(natsMsg*).
+// Both APIs use the same shape but on different types, so the key/value fetchers are passed as callables.
+using HeaderKeysFn = std::function<natsStatus(const char***, int*)>;
+using HeaderValuesFn = std::function<natsStatus(const char*, const char***, int*)>;
+MessageHeaders readHeaderFields(const HeaderKeysFn& getKeys, const HeaderValuesFn& getValues);
 
 // We wrap raw pointers in unique_ptr with struct deleters to ensure proper cleanup
 // and allow construction without passing the deleter explicitly.

@@ -40,32 +40,10 @@ static const int messageTypeId = qRegisterMetaType<Message>();
 #pragma region Data types
 
 MessageHeaders Message::readHeaders(natsMsg* msg) {
-    MessageHeaders result;
-
-    const char** keys = nullptr;
-    int keyCount = 0;
-    natsStatus s = natsMsgHeader_Keys(msg, &keys, &keyCount);
-    if (s != NATS_OK || keyCount == 0)
-        return result;
-
-    for (int i = 0; i < keyCount; i++) {
-        const char** values = nullptr;
-
-        int valueCount = 0;
-        s = natsMsgHeader_Values(msg, keys[i], &values, &valueCount);
-        if (s != NATS_OK)
-            continue;
-
-        const QString key = QString::fromUtf8(keys[i]);
-        for (int j = 0; j < valueCount; j++)
-            result.insert(key, QByteArray(values[j]));
-
-        free(values);
-    }
-
-    free(keys);
-
-    return result;
+    return readHeaderFields(
+        [msg](const char*** keys, int* count) { return natsMsgHeader_Keys(msg, keys, count); },
+        [msg](const char* key, const char*** vals, int* count) { return natsMsgHeader_Values(msg, key, vals, count); }
+    );
 }
 
 Message::Message(natsMsg* msg) noexcept
