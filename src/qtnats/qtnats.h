@@ -505,6 +505,17 @@ struct ObjStoreMeta {
     ObjStoreMetaOptions opts;           ///< Additional options (e.g. chunk size)
 };
 
+struct ObjStoreInfo {
+    ObjStoreMeta meta;             ///< High-level object metadata
+    QString bucket;                ///< Name of the object store
+    QString nuid;                  ///< Unique identifier assigned when the object was put
+    uint64_t size;                 ///< Size of the object in bytes (excludes metadata)
+    NatsTimePoint modTime;         ///< Last modification time
+    uint32_t chunks;               ///< Number of chunks the object is split into
+    std::optional<QString> digest; ///< SHA-256 digest for integrity verification (nullopt if not set)
+    bool deleted;                  ///< True if the object is marked as deleted
+};
+
 struct QTNATS_EXPORT Options {
     QList<QUrl> servers;
     QString user;
