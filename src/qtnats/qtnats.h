@@ -533,8 +533,9 @@ struct QTNATS_EXPORT Options {
 #pragma region Classes
 
 class Subscription;
-class JetStream;
 class PullSubscription;
+class JetStream;
+class ObjectStore;
 
 class QTNATS_EXPORT Client : public QObject {
     Q_OBJECT
@@ -698,6 +699,14 @@ public:
     // Functions for creating durable objects that are related to the JetStream.
     // The JetStream owns these objects and will manage their lifetimes, so they are returned as raw pointers.
 
+    ObjectStore* createObjectStore(const ObjStoreConfig& config);
+
+    ObjectStore* updateObjectStore(const ObjStoreConfig& config);
+
+    ObjectStore* getObjectStore(const QString& bucket);
+
+    void deleteObjectStore(const QString& bucket) const;
+
 Q_SIGNALS:
     void errorOccurred(natsStatus error, jsErrCode jsErr, const QString& text, Message msg);
 
@@ -711,6 +720,25 @@ private:
     void doAsyncPublish(const Message& msg, jsPubOptions* opts) const;
 
     friend class Client;
+};
+
+class QTNATS_EXPORT ObjectStore : public QObject {
+    Q_OBJECT
+    Q_DISABLE_COPY(ObjectStore)
+
+public:
+    ~ObjectStore() noexcept override;
+
+    ObjectStore(ObjectStore&&) = delete;
+
+    ObjectStore& operator=(ObjectStore&&) = delete;
+
+private:
+    ObjectStore(QObject* parent) : QObject(parent) {}
+
+    objStore* m_objStore = nullptr;
+
+    friend class JetStream;
 };
 
 #pragma endregion

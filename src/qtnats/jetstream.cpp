@@ -138,6 +138,32 @@ JsConsumerPauseResponse JetStream::pauseConsumer(
     return fromC(JsConsumerPauseResponsePtr(resp));
 }
 
+ObjectStore* JetStream::createObjectStore(const ObjStoreConfig& config) {
+    auto* const store = new ObjectStore(this);
+    convertAndHandle(config, [&](objStoreConfig& jsConfig) {
+        checkError(js_CreateObjectStore(&store->m_objStore, m_jsCtx, &jsConfig));
+    });
+    return store;
+}
+
+ObjectStore* JetStream::updateObjectStore(const ObjStoreConfig& config) {
+    auto* const store = new ObjectStore(this);
+    convertAndHandle(config, [&](objStoreConfig& jsConfig) {
+        checkError(js_UpdateObjectStore(&store->m_objStore, m_jsCtx, &jsConfig));
+    });
+    return store;
+}
+
+ObjectStore* JetStream::getObjectStore(const QString& bucket) {
+    auto* const store = new ObjectStore(this);
+    checkError(js_ObjectStore(&store->m_objStore, m_jsCtx, bucket.toUtf8().constData()));
+    return store;
+}
+
+void JetStream::deleteObjectStore(const QString& bucket) const {
+    checkError(js_DeleteObjectStore(m_jsCtx, bucket.toUtf8().constData()));
+}
+
 void Message::ack() const {
     jsErrCode jsErr = {};
     const natsStatus s = natsMsg_AckSync(m_natsMsg.get(), nullptr, &jsErr);
@@ -257,3 +283,5 @@ void JetStream::doAsyncPublish(const Message& msg, jsPubOptions* opts) const {
     // TODO headers will require js_PublishMsgAsync
     checkError(js_PublishAsync(m_jsCtx, msg.subject.toUtf8().constData(), msg.data.constData(), msg.data.size(), opts));
 }
+
+ObjectStore::~ObjectStore() noexcept { objStore_Destroy(m_objStore); }
