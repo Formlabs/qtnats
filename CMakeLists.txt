@@ -14,8 +14,8 @@ if(NOT cnats_FOUND)
     message(STATUS "cnats not found via find_package, fetching via FetchContent...")
     include(FetchContent)
     FetchContent_Declare(cnats
-        URL https://github.com/nats-io/nats.c/archive/refs/tags/v3.10.1.tar.gz
-        URL_HASH SHA256=1765533bbc1270ab7c89e3481b4778db7d1e7b4db2fa906b6602cd5c02846222
+        URL https://github.com/nats-io/nats.c/archive/refs/tags/v3.12.0.tar.gz
+        URL_HASH SHA256=06b64d7045fd618c98e5608001b384bdbfa6a17718dba64e732ba72a6f00649b
     )
     set(NATS_BUILD_WITH_TLS ON CACHE BOOL "" FORCE)
     set(NATS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
