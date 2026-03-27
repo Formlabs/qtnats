@@ -114,18 +114,34 @@ struct JsConsumerPauseResponseDeleter {
 struct JsStreamInfoDeleter {
     void operator()(jsStreamInfo* p) const { jsStreamInfo_Destroy(p); }
 };
+struct NatsHeaderDeleter {
+    void operator()(natsHeader* p) const { natsHeader_Destroy(p); }
+};
 struct NatsMsgDeleter {
     void operator()(natsMsg* p) const { natsMsg_Destroy(p); }
 };
 struct NatsOptsDeleter {
     void operator()(natsOptions* p) const { natsOptions_Destroy(p); }
 };
+struct ObjStorePutDeleter {
+    void operator()(objStorePut* p) const { objStorePut_Destroy(p); }
+};
+struct ObjStoreGetDeleter {
+    void operator()(objStoreGet* p) const { objStoreGet_Destroy(p); }
+};
+struct ObjStoreWatcherDeleter {
+    void operator()(objStoreWatcher* p) const { objStoreWatcher_Destroy(p); }
+};
 using JsConsumerInfoPtr = std::unique_ptr<jsConsumerInfo, JsConsumerInfoDeleter>;
 using JsConsumerPauseResponsePtr = std::unique_ptr<jsConsumerPauseResponse, JsConsumerPauseResponseDeleter>;
 using JsPubAckPtr = std::unique_ptr<jsPubAck, JsPubAckDeleter>;
 using JsStreamInfoPtr = std::unique_ptr<jsStreamInfo, JsStreamInfoDeleter>;
+using NatsHeaderPtr = std::unique_ptr<natsHeader, NatsHeaderDeleter>;
 using NatsMsgPtr = std::unique_ptr<natsMsg, NatsMsgDeleter>;
 using NatsOptsPtr = std::unique_ptr<natsOptions, NatsOptsDeleter>;
+using ObjStorePutPtr = std::unique_ptr<objStorePut, ObjStorePutDeleter>;
+using ObjStoreGetPtr = std::unique_ptr<objStoreGet, ObjStoreGetDeleter>;
+using ObjStoreWatcherPtr = std::unique_ptr<objStoreWatcher, ObjStoreWatcherDeleter>;
 
 JsClusterInfo fromC(const jsClusterInfo& cluster);
 JsConsumerConfig fromC(const jsConsumerConfig& cfg);
@@ -583,6 +599,48 @@ auto convertAndHandle(const JsStreamConfig& cfg, F&& handler) -> std::invoke_res
     };
 
     return withSources();
+}
+
+template <typename F>
+auto convertAndHandle(const MessageHeaders& headers, F&& handler) -> std::invoke_result_t<F, natsHeader*> {
+    natsHeader* rawHdr;
+    checkError(natsHeader_New(&rawHdr));
+
+    StringArena a;
+    const NatsHeaderPtr hdrPtr{rawHdr};
+    // asKeyValueRange is Qt6 only
+    for (auto it = headers.constBegin(); it != headers.constEnd(); ++it) {
+        checkError(natsHeader_Add(hdrPtr.get(), a.add(it.key()), it.value().constData()));
+    }
+
+    return handler(hdrPtr.get());
+}
+
+template <typename F>
+auto convertAndHandle(const ObjStoreMetaOptions& opts, F&& handler) -> std::invoke_result_t<F, objStoreMetaOptions&> {
+    objStoreMetaOptions o = {};
+    o.ChunkSize = opts.chunkSize;
+    // o.Link is intentionally left null — set via objStore_AddLink / objStore_AddBucketLink
+    return handler(o);
+}
+
+template <typename F>
+auto convertAndHandle(const ObjStoreMeta& meta, F&& handler) -> std::invoke_result_t<F, objStoreMeta&> {
+    StringArena a;
+    objStoreMeta o = {};
+    o.Name = a.add(meta.name);
+    o.Description = a.add(meta.description);
+
+    return convertAndHandle(meta.headers, [&](natsHeader* hdr) {
+        o.Headers = hdr;
+        return convertAndHandle(meta.opts, [&](const objStoreMetaOptions& opts) {
+            o.Opts = opts;
+            return convertAndHandle(meta.metadata, [&](const natsMetadata& m) {
+                o.Metadata = m;
+                return handler(o);
+            });
+        });
+    });
 }
 
 template <typename F>
