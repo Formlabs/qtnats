@@ -136,6 +136,9 @@ struct ObjStorePutDeleter {
 struct ObjStoreGetDeleter {
     void operator()(objStoreGet* p) const { objStoreGet_Destroy(p); }
 };
+struct ObjStoreInfoDeleter {
+    void operator()(objStoreInfo* p) const { objStoreInfo_Destroy(p); }
+};
 struct ObjStoreWatcherDeleter {
     void operator()(objStoreWatcher* p) const { objStoreWatcher_Destroy(p); }
 };
@@ -148,6 +151,7 @@ using NatsMsgPtr = std::unique_ptr<natsMsg, NatsMsgDeleter>;
 using NatsOptsPtr = std::unique_ptr<natsOptions, NatsOptsDeleter>;
 using ObjStorePutPtr = std::unique_ptr<objStorePut, ObjStorePutDeleter>;
 using ObjStoreGetPtr = std::unique_ptr<objStoreGet, ObjStoreGetDeleter>;
+using ObjStoreInfoPtr = std::unique_ptr<objStoreInfo, ObjStoreInfoDeleter>;
 using ObjStoreWatcherPtr = std::unique_ptr<objStoreWatcher, ObjStoreWatcherDeleter>;
 
 JsClusterInfo fromC(const jsClusterInfo& cluster);
@@ -177,7 +181,11 @@ JsStreamStateSubject fromC(const jsStreamStateSubject& subj);
 QList<JsStreamStateSubject> fromC(const jsStreamStateSubjects& subjs);
 JsSubjectTransformConfig fromC(const jsSubjectTransformConfig& st);
 Message fromC(NatsMsgPtr msg);
+MessageHeaders fromC(natsHeader* h);
 NatsMetadata fromC(const natsMetadata& meta);
+ObjStoreInfo fromC(const objStoreInfo& info);
+ObjStoreInfo fromC(const ObjStoreInfoPtr& info);
+ObjStoreMeta fromC(const objStoreMeta& meta);
 
 // Probe functor used by convertAndHandleAll to deduce CType without a runtime call.
 // A lambda would be simpler ([](auto& c) { return &c; }) but lambdas in unevaluated

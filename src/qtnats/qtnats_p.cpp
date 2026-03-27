@@ -362,11 +362,47 @@ JsSubjectTransformConfig fromC(const jsSubjectTransformConfig& st) {
 
 Message fromC(NatsMsgPtr msg) { return Message(msg.release()); }
 
+MessageHeaders fromC(natsHeader* h) {
+    if (!h)
+        return {};
+    return readHeaderFields(
+        [h](const char*** keys, int* count) { return natsHeader_Keys(h, keys, count); },
+        [h](const char* key, const char*** vals, int* count) { return natsHeader_Values(h, key, vals, count); }
+    );
+}
+
 NatsMetadata fromC(const natsMetadata& meta) {
     NatsMetadata result;
     // natsMetadata.List is [k, v, k, v, ...]; Count is the number of k/v pairs
     for (int i = 0; i < meta.Count; i++)
         result.insert(QString::fromUtf8(meta.List[i * 2]), QByteArray(meta.List[i * 2 + 1]));
+    return result;
+}
+
+ObjStoreInfo fromC(const objStoreInfo& info) {
+    ObjStoreInfo result;
+    result.meta = fromC(info.Meta);
+    result.bucket = QString::fromUtf8(info.Bucket);
+    result.nuid = QString::fromUtf8(info.NUID);
+    result.size = info.Size;
+    result.modTime = toTimePoint(info.ModTime);
+    result.chunks = info.Chunks;
+    result.digest = toOptionalQString(info.Digest);
+    result.deleted = info.Deleted;
+    return result;
+}
+
+ObjStoreInfo fromC(const ObjStoreInfoPtr& info) {
+    return fromC(*info);
+}
+
+ObjStoreMeta fromC(const objStoreMeta& meta) {
+    ObjStoreMeta result;
+    result.name = QString::fromUtf8(meta.Name);
+    result.description = toOptionalQString(meta.Description);
+    result.headers = fromC(meta.Headers);
+    result.metadata = fromC(meta.Metadata);
+    result.opts.chunkSize = meta.Opts.ChunkSize;
     return result;
 }
 
