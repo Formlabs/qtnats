@@ -480,6 +480,18 @@ private:
     std::shared_ptr<natsMsg> m_natsMsg;
 };
 
+struct ObjStoreConfig {
+    QString bucket;                              ///< Bucket name; must be unique, alphanumeric, dashes, underscores only
+    std::optional<QString> description;          ///< Optional human-readable description
+    std::optional<NatsDuration> ttl;             ///< Maximum age of objects (nullopt = no expiry)
+    std::optional<uint64_t> maxBytes;            ///< Maximum size of the store in bytes (nullopt = unlimited)
+    JsStorageType storage = JsStorageType::File; ///< Storage backend (file or memory)
+    int replicas = 1;                            ///< Number of replicas in a clustered JetStream (1–5)
+    std::optional<JsPlacement> placement;        ///< Cluster/tag placement constraints
+    bool compression = false;                    ///< Enable stream-level compression (requires nats-server 2.10+)
+    NatsMetadata metadata;                       ///< Bucket-level metadata (requires nats-server 2.10+)
+};
+
 struct QTNATS_EXPORT Options {
     QList<QUrl> servers;
     QString user;
