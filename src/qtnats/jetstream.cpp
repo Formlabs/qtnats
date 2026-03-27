@@ -297,3 +297,9 @@ ObjStoreInfo ObjectStore::putBytes(const QString& name, const QByteArray& data) 
     checkError(objStore_PutBytes(&info, m_objStore, name.toUtf8().constData(), data.constData(), data.size()));
     return fromC(ObjStoreInfoPtr(info));
 }
+
+ObjStoreInfo ObjectStore::putFile(const std::filesystem::path& path) const {
+    objStoreInfo* info;
+    checkError(objStore_PutFile(&info, m_objStore, path.string().c_str()));
+    return fromC(ObjStoreInfoPtr(info));
+}

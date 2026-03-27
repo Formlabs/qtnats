@@ -36,6 +36,8 @@
 
 #include <qtnats/qtnats_export.h>
 
+#include <filesystem>
+
 namespace QtNats {
 QTNATS_EXPORT Q_NAMESPACE // we need the "export" directive due to https://bugreports.qt.io/browse/QTBUG-68014
 
@@ -760,6 +762,8 @@ public:
     [[nodiscard]] ObjStoreInfo putString(const QString& name, const QString& data) const;
 
     [[nodiscard]] ObjStoreInfo putBytes(const QString& name, const QByteArray& data) const;
+
+    [[nodiscard]] ObjStoreInfo putFile(const std::filesystem::path& path) const;
 
 private:
     ObjectStore(QObject* parent) : QObject(parent) {}
