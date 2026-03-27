@@ -759,6 +759,8 @@ public:
 
     [[nodiscard]] ObjStoreInfo putString(const QString& name, const QString& data) const;
 
+    [[nodiscard]] ObjStoreInfo putBytes(const QString& name, const QByteArray& data) const;
+
 private:
     ObjectStore(QObject* parent) : QObject(parent) {}
 

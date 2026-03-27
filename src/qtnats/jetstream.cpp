@@ -291,3 +291,9 @@ ObjStoreInfo ObjectStore::putString(const QString& name, const QString& data) co
     checkError(objStore_PutString(&info, m_objStore, name.toUtf8().constData(), data.toUtf8().constData()));
     return fromC(ObjStoreInfoPtr(info));
 }
+
+ObjStoreInfo ObjectStore::putBytes(const QString& name, const QByteArray& data) const {
+    objStoreInfo* info;
+    checkError(objStore_PutBytes(&info, m_objStore, name.toUtf8().constData(), data.constData(), data.size()));
+    return fromC(ObjStoreInfoPtr(info));
+}
