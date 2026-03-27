@@ -642,6 +642,8 @@ public:
 
     JetStream& operator=(JetStream&&) = delete;
 
+    // General JetStream manipulation functions.
+
     JsPublishAck publish(const Message& msg, const JsPublishOptions& opts);
 
     void asyncPublish(const Message& msg, const JsPublishOptions& opts) const;
@@ -652,23 +654,36 @@ public:
 
     PullSubscription* pullSubscribe(const QString& subject, const QString& stream, const QString& consumer);
 
+    // General stream functions
+
     JsStreamInfo addStream(const JsStreamConfig& config) const;
+
     JsStreamInfo updateStream(const JsStreamConfig& config) const;
+
     void purgeStream(const QString& stream) const;
+
     void deleteStream(const QString& stream) const;
+
     JsStreamInfo getStreamInfo(const QString& stream) const;
 
+    // General consumer functions
+
     JsConsumerInfo addConsumer(const QString& stream, const JsConsumerConfig& config) const;
+
     JsConsumerInfo updateConsumer(const QString& stream, const JsConsumerConfig& config) const;
+
     JsConsumerInfo getConsumerInfo(const QString& stream, const QString& consumer) const;
+
     void deleteConsumer(const QString& stream, const QString& consumer) const;
+
     JsConsumerPauseResponse pauseConsumer(
         const QString& stream,
         const QString& consumer,
         NatsTimePoint pauseUntil
     ) const;
 
-    jsCtx* getJsContext() const { return m_jsCtx; }
+    // Functions for creating durable objects that are related to the JetStream.
+    // The JetStream owns these objects and will manage their lifetimes, so they are returned as raw pointers.
 
 Q_SIGNALS:
     void errorOccurred(natsStatus error, jsErrCode jsErr, const QString& text, Message msg);
