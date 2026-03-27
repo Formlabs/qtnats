@@ -492,6 +492,19 @@ struct ObjStoreConfig {
     NatsMetadata metadata;                       ///< Bucket-level metadata (requires nats-server 2.10+)
 };
 
+struct ObjStoreMetaOptions {
+    uint32_t chunkSize = 128 * 1024; ///< Maximum chunk size in bytes
+    // Note: Link is intentionally omitted — use objStore_AddLink / objStore_AddBucketLink instead
+};
+
+struct ObjStoreMeta {
+    QString name;                       ///< Object name; required and unique within the store
+    std::optional<QString> description; ///< Optional human-readable description
+    MessageHeaders headers;             ///< Optional user-defined headers
+    NatsMetadata metadata;              ///< Optional user-supplied metadata
+    ObjStoreMetaOptions opts;           ///< Additional options (e.g. chunk size)
+};
+
 struct QTNATS_EXPORT Options {
     QList<QUrl> servers;
     QString user;
