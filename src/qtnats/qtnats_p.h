@@ -679,4 +679,11 @@ auto convertAndHandle(const ObjStoreConfig& cfg, F&& handler) -> std::invoke_res
     return withOptional(cfg.placement, [&](jsPlacement& p) { o.Placement = &p; }, withMetadata);
 }
 
+template <typename F>
+auto convertAndHandle(const ObjStoreOptions& opts, F&& handler) -> std::invoke_result_t<F, objStoreOptions&> {
+    objStoreOptions o = {};
+    o.ShowDeleted = opts.showDeleted;
+    return handler(o);
+}
+
 } // namespace QtNats
