@@ -585,4 +585,25 @@ auto convertAndHandle(const JsStreamConfig& cfg, F&& handler) -> std::invoke_res
     return withSources();
 }
 
+template <typename F>
+auto convertAndHandle(const ObjStoreConfig& cfg, F&& handler) -> std::invoke_result_t<F, objStoreConfig&> {
+    StringArena a;
+    objStoreConfig o = {};
+    o.Bucket = a.add(cfg.bucket);
+    o.Description = a.add(cfg.description);
+    o.TTL = cfg.ttl.has_value() ? std::chrono::duration_cast<std::chrono::milliseconds>(*cfg.ttl).count() : 0;
+    o.MaxBytes = cfg.maxBytes.has_value() ? static_cast<int64_t>(*cfg.maxBytes) : -1;
+    o.Storage = static_cast<jsStorageType>(cfg.storage);
+    o.Replicas = cfg.replicas;
+    o.Compression = cfg.compression;
+
+    auto withMetadata = [&] {
+        return convertAndHandle(cfg.metadata, [&](const natsMetadata& meta) {
+            o.Metadata = meta;
+            return handler(o);
+        });
+    };
+    return withOptional(cfg.placement, [&](jsPlacement& p) { o.Placement = &p; }, withMetadata);
+}
+
 } // namespace QtNats
