@@ -86,32 +86,36 @@ JsConsumerConfig fromC(const jsConsumerConfig& cfg) {
     return result;
 }
 
-JsConsumerInfo fromC(const JsConsumerInfoPtr& info) {
+JsConsumerInfo fromC(const jsConsumerInfo& info) {
     JsConsumerInfo result;
-    result.stream = QString::fromUtf8(info->Stream);
-    result.name = QString::fromUtf8(info->Name);
-    result.created = toTimePoint(info->Created);
-    result.config = fromC(*info->Config);
-    result.delivered = fromC(info->Delivered);
-    result.ackFloor = fromC(info->AckFloor);
-    result.numAckPending = info->NumAckPending;
-    result.numRedelivered = info->NumRedelivered;
-    result.numWaiting = info->NumWaiting;
-    result.numPending = info->NumPending;
-    result.cluster = info->Cluster ? std::optional(fromC(*info->Cluster)) : std::nullopt;
-    result.pushBound = info->PushBound;
-    result.paused = info->Paused;
-    result.pauseRemaining = NatsDuration{info->PauseRemaining};
+    result.stream = QString::fromUtf8(info.Stream);
+    result.name = QString::fromUtf8(info.Name);
+    result.created = toTimePoint(info.Created);
+    result.config = fromC(*info.Config);
+    result.delivered = fromC(info.Delivered);
+    result.ackFloor = fromC(info.AckFloor);
+    result.numAckPending = info.NumAckPending;
+    result.numRedelivered = info.NumRedelivered;
+    result.numWaiting = info.NumWaiting;
+    result.numPending = info.NumPending;
+    result.cluster = info.Cluster ? std::optional(fromC(*info.Cluster)) : std::nullopt;
+    result.pushBound = info.PushBound;
+    result.paused = info.Paused;
+    result.pauseRemaining = NatsDuration{info.PauseRemaining};
     return result;
 }
 
-JsConsumerPauseResponse fromC(const JsConsumerPauseResponsePtr& resp) {
+JsConsumerInfo fromC(const JsConsumerInfoPtr& info) { return fromC(*info); }
+
+JsConsumerPauseResponse fromC(const jsConsumerPauseResponse& resp) {
     JsConsumerPauseResponse result;
-    result.paused = resp->Paused;
-    result.pauseUntil = toOptionalTimePoint(resp->PauseUntil);
-    result.pauseRemaining = NatsDuration{resp->PauseRemaining};
+    result.paused = resp.Paused;
+    result.pauseUntil = toOptionalTimePoint(resp.PauseUntil);
+    result.pauseRemaining = NatsDuration{resp.PauseRemaining};
     return result;
 }
+
+JsConsumerPauseResponse fromC(const JsConsumerPauseResponsePtr& resp) { return fromC(*resp); }
 
 JsExternalStream fromC(const jsExternalStream& ext) {
     JsExternalStream result;
@@ -148,14 +152,16 @@ JsPlacement fromC(const jsPlacement& p) {
     return result;
 }
 
-JsPublishAck fromC(const JsPubAckPtr& ack) {
+JsPublishAck fromC(const jsPubAck& ack) {
     JsPublishAck result;
-    result.stream = QString::fromUtf8(ack->Stream);
-    result.sequence = ack->Sequence;
-    result.domain = QString::fromUtf8(ack->Domain);
-    result.duplicate = ack->Duplicate;
+    result.stream = QString::fromUtf8(ack.Stream);
+    result.sequence = ack.Sequence;
+    result.domain = QString::fromUtf8(ack.Domain);
+    result.duplicate = ack.Duplicate;
     return result;
 }
+
+JsPublishAck fromC(const JsPubAckPtr& ack) { return fromC(*ack); }
 
 JsRePublish fromC(const jsRePublish& rp) {
     JsRePublish result;
@@ -242,21 +248,23 @@ JsStreamConsumerLimits fromC(const jsStreamConsumerLimits& lim) {
     return result;
 }
 
-JsStreamInfo fromC(const JsStreamInfoPtr& info) {
+JsStreamInfo fromC(const jsStreamInfo& info) {
     JsStreamInfo result;
-    result.config = fromC(*info->Config);
-    result.created = toTimePoint(info->Created);
-    result.state = fromC(info->State);
-    result.cluster = info->Cluster ? std::optional(fromC(*info->Cluster)) : std::nullopt;
-    result.mirror = info->Mirror ? std::optional(fromC(*info->Mirror)) : std::nullopt;
-    result.sources.reserve(info->SourcesLen);
-    for (int i = 0; i < info->SourcesLen; i++)
-        result.sources.append(fromC(*info->Sources[i]));
-    result.alternates.reserve(info->AlternatesLen);
-    for (int i = 0; i < info->AlternatesLen; i++)
-        result.alternates.append(fromC(*info->Alternates[i]));
+    result.config = fromC(*info.Config);
+    result.created = toTimePoint(info.Created);
+    result.state = fromC(info.State);
+    result.cluster = info.Cluster ? std::optional(fromC(*info.Cluster)) : std::nullopt;
+    result.mirror = info.Mirror ? std::optional(fromC(*info.Mirror)) : std::nullopt;
+    result.sources.reserve(info.SourcesLen);
+    for (int i = 0; i < info.SourcesLen; i++)
+        result.sources.append(fromC(*info.Sources[i]));
+    result.alternates.reserve(info.AlternatesLen);
+    for (int i = 0; i < info.AlternatesLen; i++)
+        result.alternates.append(fromC(*info.Alternates[i]));
     return result;
 }
+
+JsStreamInfo fromC(const JsStreamInfoPtr& info) { return fromC(*info); }
 
 JsStreamSource fromC(const jsStreamSource& src) {
     JsStreamSource result;
