@@ -518,6 +518,10 @@ struct ObjStoreInfo {
     bool deleted;                  ///< True if the object is marked as deleted
 };
 
+struct ObjStoreOptions {
+    bool showDeleted = false; ///< Include deleted objects in results
+};
+
 struct QTNATS_EXPORT Options {
     QList<QUrl> servers;
     QString user;
