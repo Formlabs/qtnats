@@ -313,3 +313,14 @@ QString ObjectStore::getString(const QString& name, const ObjStoreOptions& optio
         return result;
     });
 }
+
+QByteArray ObjectStore::getBytes(const QString& name, const ObjStoreOptions& options) const {
+    return convertAndHandle(options, [&](objStoreOptions& opts) {
+        void* data;
+        int dataLen;
+        checkError(objStore_GetBytes(&data, &dataLen, m_objStore, name.toUtf8().constData(), &opts));
+        const QByteArray result(static_cast<const char*>(data), dataLen);
+        free(data);
+        return result;
+    });
+}

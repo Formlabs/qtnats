@@ -771,6 +771,8 @@ public:
 
     [[nodiscard]] QString getString(const QString& name, const ObjStoreOptions& options) const;
 
+    [[nodiscard]] QByteArray getBytes(const QString& name, const ObjStoreOptions& options) const;
+
 private:
     ObjectStore(QObject* parent) : QObject(parent) {}
 
