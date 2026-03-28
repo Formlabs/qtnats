@@ -303,3 +303,13 @@ ObjStoreInfo ObjectStore::putFile(const std::filesystem::path& path) const {
     checkError(objStore_PutFile(&info, m_objStore, path.string().c_str()));
     return fromC(ObjStoreInfoPtr(info));
 }
+
+QString ObjectStore::getString(const QString& name, const ObjStoreOptions& options) const {
+    return convertAndHandle(options, [&](objStoreOptions& opts) {
+        char* data;
+        checkError(objStore_GetString(&data, m_objStore, name.toUtf8().constData(), &opts));
+        const QString result = QString::fromUtf8(data);
+        free(data);
+        return result;
+    });
+}

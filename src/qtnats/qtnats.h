@@ -769,6 +769,8 @@ public:
 
     [[nodiscard]] ObjStoreInfo putFile(const std::filesystem::path& path) const;
 
+    [[nodiscard]] QString getString(const QString& name, const ObjStoreOptions& options) const;
+
 private:
     ObjectStore(QObject* parent) : QObject(parent) {}
 
