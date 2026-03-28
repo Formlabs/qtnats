@@ -773,6 +773,8 @@ public:
 
     [[nodiscard]] QByteArray getBytes(const QString& name, const ObjStoreOptions& options) const;
 
+    void getFile(const QString& name, const std::filesystem::path& path, const ObjStoreOptions& options) const;
+
 private:
     ObjectStore(QObject* parent) : QObject(parent) {}
 

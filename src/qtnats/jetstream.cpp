@@ -324,3 +324,13 @@ QByteArray ObjectStore::getBytes(const QString& name, const ObjStoreOptions& opt
         return result;
     });
 }
+
+void ObjectStore::getFile(
+    const QString& name,
+    const std::filesystem::path& path,
+    const ObjStoreOptions& options
+) const {
+    return convertAndHandle(options, [&](objStoreOptions& opts) {
+        checkError(objStore_GetFile(m_objStore, name.toUtf8().constData(), path.string().c_str(), &opts));
+    });
+}
