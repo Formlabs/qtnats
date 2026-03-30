@@ -44,6 +44,7 @@ class JetStreamTestCase : public QObject {
 
 private Q_SLOTS:
     void initTestCase();
+    void cleanup() const;
     void cleanupTestCase();
 
     void streamManagement() const;
@@ -91,6 +92,11 @@ void JetStreamTestCase::initTestCase() {
     natsCli.start("nats", QStringList() << "stream" << "info" << config.name);
     QVERIFY2(natsCli.waitForFinished(), qPrintable(natsCli.errorString()));
     QVERIFY2(natsCli.exitCode() == 0, "nats CLI failed (see output above)");
+}
+
+void JetStreamTestCase::cleanup() const {
+    // Ensure that we don't accidentally retain messages between tests.
+    js->purgeStream("MY_STREAM");
 }
 
 void JetStreamTestCase::cleanupTestCase() {
