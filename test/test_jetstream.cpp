@@ -407,6 +407,7 @@ void JetStreamTestCase::readWriteObject() {
             const auto storeInfo = objectStore->putBytes(asBytes, QByteArray(testString));
             QVERIFY(storeInfo.size == strlen(testString));
         }
+        QString fileName;
         {
             // For putFile, we need to create a temporary file with the test content
             QFile tempFile{asFile};
@@ -416,6 +417,9 @@ void JetStreamTestCase::readWriteObject() {
 
             const auto storeInfo = objectStore->putFile(asFile);
             QVERIFY(storeInfo.size == strlen(testString));
+            // putFile() doesn't guarantee a specific name.
+            // In practice, it's the full path, but this is more robust.
+            fileName = storeInfo.meta.name;
 
             // Cleanup the temporary file
             tempFile.remove();
@@ -441,7 +445,7 @@ void JetStreamTestCase::readWriteObject() {
             QVERIFY2(natsCli.exitCode() == 0, "nats CLI failed (see output above)");
         }
         {
-            objectStore->getFile(asFile.c_str(), asFile, {});
+            objectStore->getFile(fileName, asFile, {});
             QFile tempFile{asFile};
             QVERIFY(tempFile.open(QIODevice::ReadOnly));
             const QString fileContent = tempFile.readAll();
