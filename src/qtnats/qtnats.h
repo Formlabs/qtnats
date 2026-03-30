@@ -648,7 +648,7 @@ Q_SIGNALS:
     void received(Message message);
 
 private:
-    Subscription(QObject* parent) : QObject(parent) {}
+    explicit Subscription(QObject* parent) : QObject(parent) {}
 
     natsSubscription* m_sub = nullptr;
     friend class Client;
@@ -741,7 +741,7 @@ Q_SIGNALS:
     void errorOccurred(natsStatus error, jsErrCode jsErr, const QString& text, Message msg);
 
 private:
-    JetStream(QObject* parent) : QObject(parent) {}
+    explicit JetStream(QObject* parent) : QObject(parent) {}
 
     jsCtx* m_jsCtx = nullptr;
 
@@ -776,7 +776,7 @@ public:
     void getFile(const QString& name, const std::filesystem::path& path, const ObjStoreOptions& options) const;
 
 private:
-    ObjectStore(QObject* parent) : QObject(parent) {}
+    explicit ObjectStore(QObject* parent) : QObject(parent) {}
 
     objStore* m_objStore = nullptr;
 
