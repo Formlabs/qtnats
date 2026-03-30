@@ -33,13 +33,15 @@ static void jsPubErrHandler(jsCtx*, jsPubAckErr* pae, void* closure) {
 }
 
 JetStream* Client::jetStream(const JsOptions& options) {
-    auto* const js = new JetStream(this);
+    // If something throws, it will be cleaned up by the unique_ptr's destructor instead of being leaked.
+    // We can't use make_unique because we're relying on the friend declaration.
+    auto js = std::unique_ptr<JetStream>(new JetStream(this));
     convertAndHandle(options, [&](jsOptions& jsOpts) {
         jsOpts.PublishAsync.ErrHandler = &jsPubErrHandler;
-        jsOpts.PublishAsync.ErrHandlerClosure = js;
+        jsOpts.PublishAsync.ErrHandlerClosure = js.get();
         checkError(natsConnection_JetStream(&js->m_jsCtx, m_conn, &jsOpts));
     });
-    return js;
+    return js.release();
 }
 
 JsStreamInfo JetStream::addStream(const JsStreamConfig& config) const {
@@ -139,25 +141,30 @@ JsConsumerPauseResponse JetStream::pauseConsumer(
 }
 
 ObjectStore* JetStream::createObjectStore(const ObjStoreConfig& config) {
-    auto* const store = new ObjectStore(this);
+    // If something throws, it will be cleaned up by the unique_ptr's destructor instead of being leaked.
+    // We can't use make_unique because we're relying on the friend declaration.
+    auto store = std::unique_ptr<ObjectStore>(new ObjectStore(this));
     convertAndHandle(config, [&](objStoreConfig& jsConfig) {
         checkError(js_CreateObjectStore(&store->m_objStore, m_jsCtx, &jsConfig));
     });
-    return store;
+    return store.release();
 }
 
 ObjectStore* JetStream::updateObjectStore(const ObjStoreConfig& config) {
-    auto* const store = new ObjectStore(this);
-    convertAndHandle(config, [&](objStoreConfig& jsConfig) {
+    // If something throws, it will be cleaned up by the unique_ptr's destructor instead of being leaked.
+    // We can't use make_unique because we're relying on the friend declaration.
+    auto store = std::unique_ptr<ObjectStore>(new ObjectStore(this));    convertAndHandle(config, [&](objStoreConfig& jsConfig) {
         checkError(js_UpdateObjectStore(&store->m_objStore, m_jsCtx, &jsConfig));
     });
-    return store;
+    return store.release();
 }
 
 ObjectStore* JetStream::getObjectStore(const QString& bucket) {
-    auto* const store = new ObjectStore(this);
+    // If something throws, it will be cleaned up by the unique_ptr's destructor instead of being leaked.
+    // We can't use make_unique because we're relying on the friend declaration.
+    auto store = std::unique_ptr<ObjectStore>(new ObjectStore(this));
     checkError(js_ObjectStore(&store->m_objStore, m_jsCtx, bucket.toUtf8().constData()));
-    return store;
+    return store.release();
 }
 
 void JetStream::deleteObjectStore(const QString& bucket) const {
@@ -234,6 +241,8 @@ void JetStream::waitForPublishCompleted(const std::optional<NatsTimeout> timeout
 
 Subscription* JetStream::subscribe(const QString& subject, const QString& stream, const QString& consumer) {
     // manualAck=true: avoid _autoAckCB in cnats internals, because it takes over ownership of delivered messages
+    // If something throws, it will be cleaned up by the unique_ptr's destructor instead of being leaked.
+    // We can't use make_unique because we're relying on the friend declaration.
     auto sub = std::unique_ptr<Subscription>(new Subscription(nullptr));
     jsErrCode jsErr = {};
     convertAndHandle(JsSubOptions{stream, consumer}, /*manualAck=*/true, [&](jsSubOptions& subOpts) {
@@ -254,6 +263,8 @@ Subscription* JetStream::subscribe(const QString& subject, const QString& stream
 }
 
 PullSubscription* JetStream::pullSubscribe(const QString& subject, const QString& stream, const QString& consumer) {
+    // If something throws, it will be cleaned up by the unique_ptr's destructor instead of being leaked.
+    // We can't use make_unique because we're relying on the friend declaration.
     auto sub = std::unique_ptr<PullSubscription>(new PullSubscription(nullptr));
     jsErrCode jsErr = {};
     convertAndHandle(JsSubOptions{stream, consumer}, /*manualAck=*/false, [&](jsSubOptions& subOpts) {
