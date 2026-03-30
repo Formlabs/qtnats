@@ -458,7 +458,7 @@ struct QTNATS_EXPORT Message {
         , data{std::move(data)}
         , headers{std::move(headers)} {}
 
-    explicit Message(natsMsg* msg) noexcept;
+    explicit Message(natsMsg* msg);
 
     [[nodiscard]] bool isIncoming() const { return static_cast<bool>(m_natsMsg); }
 
@@ -470,6 +470,14 @@ struct QTNATS_EXPORT Message {
 
     void terminate() const;
 
+private:
+    // Message is copyable, but the underlying natsMsg is not. Thus, we use a shared pointer, and only delete the
+    // natsMsg when the last Message referencing it is destroyed.
+    // natsMsg needs to be before the headers, so if there's an issue parsing the headers, and it throws, the natsMsg
+    // will still be deleted, and the natsMsg* passed in the constructor won't dangle.
+    std::shared_ptr<natsMsg> m_natsMsg;
+
+public:
     QString subject;
     QByteArray reply;
     QByteArray data;
@@ -479,7 +487,6 @@ struct QTNATS_EXPORT Message {
 
 private:
     static MessageHeaders readHeaders(natsMsg* msg);
-    std::shared_ptr<natsMsg> m_natsMsg;
 };
 
 struct ObjStoreConfig {

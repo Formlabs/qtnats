@@ -46,12 +46,12 @@ MessageHeaders Message::readHeaders(natsMsg* msg) {
     );
 }
 
-Message::Message(natsMsg* msg) noexcept
-    : subject{QString::fromUtf8(natsMsg_GetSubject(msg))}
+Message::Message(natsMsg* msg)
+    : m_natsMsg{msg, &natsMsg_Destroy}
+    , subject{QString::fromUtf8(natsMsg_GetSubject(msg))}
     , reply{QByteArray(natsMsg_GetReply(msg))}
     , data{QByteArray(natsMsg_GetData(msg), natsMsg_GetDataLength(msg))}
-    , headers{readHeaders(msg)}
-    , m_natsMsg{msg, &natsMsg_Destroy} {}
+    , headers{readHeaders(msg)} {}
 
 #pragma endregion
 
