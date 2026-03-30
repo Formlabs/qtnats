@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <functional>
 #include <list>
 #include <type_traits>
 
@@ -100,13 +101,16 @@ inline std::optional<NatsTimePoint> toOptionalTimePoint(const int64_t ns) {
     return ns > 0 ? std::optional(NatsTimePoint{NatsDuration{ns}}) : std::nullopt;
 };
 
+// Common header-reading loop shared by fromC(natsHeader*) and Message::readHeaders(natsMsg*).
+// Both APIs use the same shape but on different types, so the key/value fetchers are passed as callables.
+using HeaderKeysFn = std::function<natsStatus(const char***, int*)>;
+using HeaderValuesFn = std::function<natsStatus(const char*, const char***, int*)>;
+MessageHeaders readHeaderFields(const HeaderKeysFn& getKeys, const HeaderValuesFn& getValues);
+
 // We wrap raw pointers in unique_ptr with struct deleters to ensure proper cleanup
 // and allow construction without passing the deleter explicitly.
 struct JsPubAckDeleter {
     void operator()(jsPubAck* p) const { jsPubAck_Destroy(p); }
-};
-struct JsStreamInfoDeleter {
-    void operator()(jsStreamInfo* p) const { jsStreamInfo_Destroy(p); }
 };
 struct JsConsumerInfoDeleter {
     void operator()(jsConsumerInfo* p) const { jsConsumerInfo_Destroy(p); }
@@ -114,44 +118,74 @@ struct JsConsumerInfoDeleter {
 struct JsConsumerPauseResponseDeleter {
     void operator()(jsConsumerPauseResponse* p) const { jsConsumerPauseResponse_Destroy(p); }
 };
+struct JsStreamInfoDeleter {
+    void operator()(jsStreamInfo* p) const { jsStreamInfo_Destroy(p); }
+};
+struct NatsHeaderDeleter {
+    void operator()(natsHeader* p) const { natsHeader_Destroy(p); }
+};
 struct NatsMsgDeleter {
     void operator()(natsMsg* p) const { natsMsg_Destroy(p); }
 };
 struct NatsOptsDeleter {
     void operator()(natsOptions* p) const { natsOptions_Destroy(p); }
 };
-using JsPubAckPtr = std::unique_ptr<jsPubAck, JsPubAckDeleter>;
-using JsStreamInfoPtr = std::unique_ptr<jsStreamInfo, JsStreamInfoDeleter>;
+struct ObjStorePutDeleter {
+    void operator()(objStorePut* p) const { objStorePut_Destroy(p); }
+};
+struct ObjStoreGetDeleter {
+    void operator()(objStoreGet* p) const { objStoreGet_Destroy(p); }
+};
+struct ObjStoreInfoDeleter {
+    void operator()(objStoreInfo* p) const { objStoreInfo_Destroy(p); }
+};
+struct ObjStoreWatcherDeleter {
+    void operator()(objStoreWatcher* p) const { objStoreWatcher_Destroy(p); }
+};
 using JsConsumerInfoPtr = std::unique_ptr<jsConsumerInfo, JsConsumerInfoDeleter>;
 using JsConsumerPauseResponsePtr = std::unique_ptr<jsConsumerPauseResponse, JsConsumerPauseResponseDeleter>;
+using JsPubAckPtr = std::unique_ptr<jsPubAck, JsPubAckDeleter>;
+using JsStreamInfoPtr = std::unique_ptr<jsStreamInfo, JsStreamInfoDeleter>;
+using NatsHeaderPtr = std::unique_ptr<natsHeader, NatsHeaderDeleter>;
 using NatsMsgPtr = std::unique_ptr<natsMsg, NatsMsgDeleter>;
 using NatsOptsPtr = std::unique_ptr<natsOptions, NatsOptsDeleter>;
+using ObjStorePutPtr = std::unique_ptr<objStorePut, ObjStorePutDeleter>;
+using ObjStoreGetPtr = std::unique_ptr<objStoreGet, ObjStoreGetDeleter>;
+using ObjStoreInfoPtr = std::unique_ptr<objStoreInfo, ObjStoreInfoDeleter>;
+using ObjStoreWatcherPtr = std::unique_ptr<objStoreWatcher, ObjStoreWatcherDeleter>;
 
-JsPublishAck fromC(const JsPubAckPtr& ack);
-Message fromC(NatsMsgPtr msg);
-
-NatsMetadata fromC(const natsMetadata& meta);
+JsClusterInfo fromC(const jsClusterInfo& cluster);
+JsConsumerConfig fromC(const jsConsumerConfig& cfg);
+JsConsumerInfo fromC(const jsConsumerInfo& info);
+JsConsumerInfo fromC(const JsConsumerInfoPtr& info);
+JsConsumerPauseResponse fromC(const jsConsumerPauseResponse& resp);
+JsConsumerPauseResponse fromC(const JsConsumerPauseResponsePtr& resp);
 JsExternalStream fromC(const jsExternalStream& ext);
-JsSubjectTransformConfig fromC(const jsSubjectTransformConfig& st);
-JsStreamConsumerLimits fromC(const jsStreamConsumerLimits& lim);
-JsStreamSource fromC(const jsStreamSource& src);
-JsPlacement fromC(const jsPlacement& p);
-JsRePublish fromC(const jsRePublish& rp);
-JsStreamConfig fromC(const jsStreamConfig& cfg);
 JsLostStreamData fromC(const jsLostStreamData& lost);
+JsPeerInfo fromC(const jsPeerInfo& peer);
+JsPlacement fromC(const jsPlacement& p);
+JsPublishAck fromC(const jsPubAck& ack);
+JsPublishAck fromC(const JsPubAckPtr& ack);
+JsRePublish fromC(const jsRePublish& rp);
+JsSequenceInfo fromC(const jsSequenceInfo& seq);
+JsSequencePair fromC(const jsSequencePair& seq);
+JsStreamAlternate fromC(const jsStreamAlternate& alt);
+JsStreamConfig fromC(const jsStreamConfig& cfg);
+JsStreamConsumerLimits fromC(const jsStreamConsumerLimits& lim);
+JsStreamInfo fromC(const jsStreamInfo& info);
+JsStreamInfo fromC(const JsStreamInfoPtr& info);
+JsStreamSource fromC(const jsStreamSource& src);
+JsStreamSourceInfo fromC(const jsStreamSourceInfo& src);
+JsStreamState fromC(const jsStreamState& state);
 JsStreamStateSubject fromC(const jsStreamStateSubject& subj);
 QList<JsStreamStateSubject> fromC(const jsStreamStateSubjects& subjs);
-JsStreamState fromC(const jsStreamState& state);
-JsPeerInfo fromC(const jsPeerInfo& peer);
-JsClusterInfo fromC(const jsClusterInfo& cluster);
-JsStreamSourceInfo fromC(const jsStreamSourceInfo& src);
-JsStreamAlternate fromC(const jsStreamAlternate& alt);
-JsStreamInfo fromC(const JsStreamInfoPtr& info);
-JsConsumerPauseResponse fromC(const JsConsumerPauseResponsePtr& resp);
-JsConsumerConfig fromC(const jsConsumerConfig& cfg);
-JsSequencePair fromC(const jsSequencePair& seq);
-JsSequenceInfo fromC(const jsSequenceInfo& seq);
-JsConsumerInfo fromC(const JsConsumerInfoPtr& info);
+JsSubjectTransformConfig fromC(const jsSubjectTransformConfig& st);
+Message fromC(NatsMsgPtr msg);
+MessageHeaders fromC(natsHeader* h);
+NatsMetadata fromC(const natsMetadata& meta);
+ObjStoreInfo fromC(const objStoreInfo& info);
+ObjStoreInfo fromC(const ObjStoreInfoPtr& info);
+ObjStoreMeta fromC(const objStoreMeta& meta);
 
 // Probe functor used by convertAndHandleAll to deduce CType without a runtime call.
 // A lambda would be simpler ([](auto& c) { return &c; }) but lambdas in unevaluated
@@ -580,6 +614,76 @@ auto convertAndHandle(const JsStreamConfig& cfg, F&& handler) -> std::invoke_res
     };
 
     return withSources();
+}
+
+template <typename F>
+auto convertAndHandle(const MessageHeaders& headers, F&& handler) -> std::invoke_result_t<F, natsHeader*> {
+    natsHeader* rawHdr;
+    checkError(natsHeader_New(&rawHdr));
+
+    StringArena a;
+    const NatsHeaderPtr hdrPtr{rawHdr};
+    // asKeyValueRange is Qt6 only
+    for (auto it = headers.constBegin(); it != headers.constEnd(); ++it) {
+        checkError(natsHeader_Add(hdrPtr.get(), a.add(it.key()), it.value().constData()));
+    }
+
+    return handler(hdrPtr.get());
+}
+
+template <typename F>
+auto convertAndHandle(const ObjStoreMetaOptions& opts, F&& handler) -> std::invoke_result_t<F, objStoreMetaOptions&> {
+    objStoreMetaOptions o = {};
+    o.ChunkSize = opts.chunkSize;
+    // o.Link is intentionally left null — set via objStore_AddLink / objStore_AddBucketLink
+    return handler(o);
+}
+
+template <typename F>
+auto convertAndHandle(const ObjStoreMeta& meta, F&& handler) -> std::invoke_result_t<F, objStoreMeta&> {
+    StringArena a;
+    objStoreMeta o = {};
+    o.Name = a.add(meta.name);
+    o.Description = a.add(meta.description);
+
+    return convertAndHandle(meta.headers, [&](natsHeader* hdr) {
+        o.Headers = hdr;
+        return convertAndHandle(meta.opts, [&](const objStoreMetaOptions& opts) {
+            o.Opts = opts;
+            return convertAndHandle(meta.metadata, [&](const natsMetadata& m) {
+                o.Metadata = m;
+                return handler(o);
+            });
+        });
+    });
+}
+
+template <typename F>
+auto convertAndHandle(const ObjStoreConfig& cfg, F&& handler) -> std::invoke_result_t<F, objStoreConfig&> {
+    StringArena a;
+    objStoreConfig o = {};
+    o.Bucket = a.add(cfg.bucket);
+    o.Description = a.add(cfg.description);
+    o.TTL = cfg.ttl.has_value() ? std::chrono::duration_cast<std::chrono::milliseconds>(*cfg.ttl).count() : 0;
+    o.MaxBytes = cfg.maxBytes.has_value() ? static_cast<int64_t>(*cfg.maxBytes) : -1;
+    o.Storage = static_cast<jsStorageType>(cfg.storage);
+    o.Replicas = cfg.replicas;
+    o.Compression = cfg.compression;
+
+    auto withMetadata = [&] {
+        return convertAndHandle(cfg.metadata, [&](const natsMetadata& meta) {
+            o.Metadata = meta;
+            return handler(o);
+        });
+    };
+    return withOptional(cfg.placement, [&](jsPlacement& p) { o.Placement = &p; }, withMetadata);
+}
+
+template <typename F>
+auto convertAndHandle(const ObjStoreOptions& opts, F&& handler) -> std::invoke_result_t<F, objStoreOptions&> {
+    objStoreOptions o = {};
+    o.ShowDeleted = opts.showDeleted;
+    return handler(o);
 }
 
 } // namespace QtNats

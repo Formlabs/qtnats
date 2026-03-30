@@ -36,6 +36,8 @@
 
 #include <qtnats/qtnats_export.h>
 
+#include <filesystem>
+
 namespace QtNats {
 QTNATS_EXPORT Q_NAMESPACE // we need the "export" directive due to https://bugreports.qt.io/browse/QTBUG-68014
 
@@ -456,7 +458,7 @@ struct QTNATS_EXPORT Message {
         , data{std::move(data)}
         , headers{std::move(headers)} {}
 
-    explicit Message(natsMsg* cmsg) noexcept;
+    explicit Message(natsMsg* msg);
 
     [[nodiscard]] bool isIncoming() const { return static_cast<bool>(m_natsMsg); }
 
@@ -468,6 +470,14 @@ struct QTNATS_EXPORT Message {
 
     void terminate() const;
 
+private:
+    // Message is copyable, but the underlying natsMsg is not. Thus, we use a shared pointer, and only delete the
+    // natsMsg when the last Message referencing it is destroyed.
+    // natsMsg needs to be before the headers, so if there's an issue parsing the headers, and it throws, the natsMsg
+    // will still be deleted, and the natsMsg* passed in the constructor won't dangle.
+    std::shared_ptr<natsMsg> m_natsMsg;
+
+public:
     QString subject;
     QByteArray reply;
     QByteArray data;
@@ -476,7 +486,47 @@ struct QTNATS_EXPORT Message {
     MessageHeaders headers;
 
 private:
-    std::shared_ptr<natsMsg> m_natsMsg;
+    static MessageHeaders readHeaders(natsMsg* msg);
+};
+
+struct ObjStoreConfig {
+    QString bucket;                              ///< Bucket name; must be unique, alphanumeric, dashes, underscores only
+    std::optional<QString> description;          ///< Optional human-readable description
+    std::optional<NatsDuration> ttl;             ///< Maximum age of objects (nullopt = no expiry)
+    std::optional<uint64_t> maxBytes;            ///< Maximum size of the store in bytes (nullopt = unlimited)
+    JsStorageType storage = JsStorageType::File; ///< Storage backend (file or memory)
+    int replicas = 1;                            ///< Number of replicas in a clustered JetStream (1–5)
+    std::optional<JsPlacement> placement;        ///< Cluster/tag placement constraints
+    bool compression = false;                    ///< Enable stream-level compression (requires nats-server 2.10+)
+    NatsMetadata metadata;                       ///< Bucket-level metadata (requires nats-server 2.10+)
+};
+
+struct ObjStoreMetaOptions {
+    uint32_t chunkSize = 128 * 1024; ///< Maximum chunk size in bytes
+    // Note: Link is intentionally omitted — use objStore_AddLink / objStore_AddBucketLink instead
+};
+
+struct ObjStoreMeta {
+    QString name;                       ///< Object name; required and unique within the store
+    std::optional<QString> description; ///< Optional human-readable description
+    MessageHeaders headers;             ///< Optional user-defined headers
+    NatsMetadata metadata;              ///< Optional user-supplied metadata
+    ObjStoreMetaOptions opts;           ///< Additional options (e.g. chunk size)
+};
+
+struct ObjStoreInfo {
+    ObjStoreMeta meta;             ///< High-level object metadata
+    QString bucket;                ///< Name of the object store
+    QString nuid;                  ///< Unique identifier assigned when the object was put
+    uint64_t size;                 ///< Size of the object in bytes (excludes metadata)
+    NatsTimePoint modTime;         ///< Last modification time
+    uint32_t chunks;               ///< Number of chunks the object is split into
+    std::optional<QString> digest; ///< SHA-256 digest for integrity verification (nullopt if not set)
+    bool deleted;                  ///< True if the object is marked as deleted
+};
+
+struct ObjStoreOptions {
+    bool showDeleted = false; ///< Include deleted objects in results
 };
 
 struct QTNATS_EXPORT Options {
@@ -520,8 +570,9 @@ struct QTNATS_EXPORT Options {
 #pragma region Classes
 
 class Subscription;
-class JetStream;
 class PullSubscription;
+class JetStream;
+class ObjectStore;
 
 class QTNATS_EXPORT Client : public QObject {
     Q_OBJECT
@@ -604,7 +655,7 @@ Q_SIGNALS:
     void received(Message message);
 
 private:
-    Subscription(QObject* parent) : QObject(parent) {}
+    explicit Subscription(QObject* parent) : QObject(parent) {}
 
     natsSubscription* m_sub = nullptr;
     friend class Client;
@@ -642,6 +693,8 @@ public:
 
     JetStream& operator=(JetStream&&) = delete;
 
+    // General JetStream manipulation functions.
+
     JsPublishAck publish(const Message& msg, const JsPublishOptions& opts);
 
     void asyncPublish(const Message& msg, const JsPublishOptions& opts) const;
@@ -652,29 +705,50 @@ public:
 
     PullSubscription* pullSubscribe(const QString& subject, const QString& stream, const QString& consumer);
 
+    // General stream functions
+
     JsStreamInfo addStream(const JsStreamConfig& config) const;
+
     JsStreamInfo updateStream(const JsStreamConfig& config) const;
+
     void purgeStream(const QString& stream) const;
+
     void deleteStream(const QString& stream) const;
+
     JsStreamInfo getStreamInfo(const QString& stream) const;
 
+    // General consumer functions
+
     JsConsumerInfo addConsumer(const QString& stream, const JsConsumerConfig& config) const;
+
     JsConsumerInfo updateConsumer(const QString& stream, const JsConsumerConfig& config) const;
+
     JsConsumerInfo getConsumerInfo(const QString& stream, const QString& consumer) const;
+
     void deleteConsumer(const QString& stream, const QString& consumer) const;
+
     JsConsumerPauseResponse pauseConsumer(
         const QString& stream,
         const QString& consumer,
         NatsTimePoint pauseUntil
     ) const;
 
-    jsCtx* getJsContext() const { return m_jsCtx; }
+    // Functions for creating durable objects that are related to the JetStream.
+    // The JetStream owns these objects and will manage their lifetimes, so they are returned as raw pointers.
+
+    ObjectStore* createObjectStore(const ObjStoreConfig& config);
+
+    ObjectStore* updateObjectStore(const ObjStoreConfig& config);
+
+    ObjectStore* getObjectStore(const QString& bucket);
+
+    void deleteObjectStore(const QString& bucket) const;
 
 Q_SIGNALS:
     void errorOccurred(natsStatus error, jsErrCode jsErr, const QString& text, Message msg);
 
 private:
-    JetStream(QObject* parent) : QObject(parent) {}
+    explicit JetStream(QObject* parent) : QObject(parent) {}
 
     jsCtx* m_jsCtx = nullptr;
 
@@ -683,6 +757,37 @@ private:
     void doAsyncPublish(const Message& msg, jsPubOptions* opts) const;
 
     friend class Client;
+};
+
+class QTNATS_EXPORT ObjectStore : public QObject {
+    Q_OBJECT
+    Q_DISABLE_COPY(ObjectStore)
+
+public:
+    ~ObjectStore() noexcept override;
+
+    ObjectStore(ObjectStore&&) = delete;
+
+    ObjectStore& operator=(ObjectStore&&) = delete;
+
+    [[nodiscard]] ObjStoreInfo putString(const QString& name, const QString& data) const;
+
+    [[nodiscard]] ObjStoreInfo putBytes(const QString& name, const QByteArray& data) const;
+
+    [[nodiscard]] ObjStoreInfo putFile(const std::filesystem::path& path) const;
+
+    [[nodiscard]] QString getString(const QString& name, const ObjStoreOptions& options) const;
+
+    [[nodiscard]] QByteArray getBytes(const QString& name, const ObjStoreOptions& options) const;
+
+    void getFile(const QString& name, const std::filesystem::path& path, const ObjStoreOptions& options) const;
+
+private:
+    explicit ObjectStore(QObject* parent) : QObject(parent) {}
+
+    objStore* m_objStore = nullptr;
+
+    friend class JetStream;
 };
 
 #pragma endregion

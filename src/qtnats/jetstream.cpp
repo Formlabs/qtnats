@@ -33,13 +33,15 @@ static void jsPubErrHandler(jsCtx*, jsPubAckErr* pae, void* closure) {
 }
 
 JetStream* Client::jetStream(const JsOptions& options) {
-    auto* const js = new JetStream(this);
+    // If something throws, it will be cleaned up by the unique_ptr's destructor instead of being leaked.
+    // We can't use make_unique because we're relying on the friend declaration.
+    auto js = std::unique_ptr<JetStream>(new JetStream(this));
     convertAndHandle(options, [&](jsOptions& jsOpts) {
         jsOpts.PublishAsync.ErrHandler = &jsPubErrHandler;
-        jsOpts.PublishAsync.ErrHandlerClosure = js;
+        jsOpts.PublishAsync.ErrHandlerClosure = js.get();
         checkError(natsConnection_JetStream(&js->m_jsCtx, m_conn, &jsOpts));
     });
-    return js;
+    return js.release();
 }
 
 JsStreamInfo JetStream::addStream(const JsStreamConfig& config) const {
@@ -138,6 +140,37 @@ JsConsumerPauseResponse JetStream::pauseConsumer(
     return fromC(JsConsumerPauseResponsePtr(resp));
 }
 
+ObjectStore* JetStream::createObjectStore(const ObjStoreConfig& config) {
+    // If something throws, it will be cleaned up by the unique_ptr's destructor instead of being leaked.
+    // We can't use make_unique because we're relying on the friend declaration.
+    auto store = std::unique_ptr<ObjectStore>(new ObjectStore(this));
+    convertAndHandle(config, [&](objStoreConfig& jsConfig) {
+        checkError(js_CreateObjectStore(&store->m_objStore, m_jsCtx, &jsConfig));
+    });
+    return store.release();
+}
+
+ObjectStore* JetStream::updateObjectStore(const ObjStoreConfig& config) {
+    // If something throws, it will be cleaned up by the unique_ptr's destructor instead of being leaked.
+    // We can't use make_unique because we're relying on the friend declaration.
+    auto store = std::unique_ptr<ObjectStore>(new ObjectStore(this));    convertAndHandle(config, [&](objStoreConfig& jsConfig) {
+        checkError(js_UpdateObjectStore(&store->m_objStore, m_jsCtx, &jsConfig));
+    });
+    return store.release();
+}
+
+ObjectStore* JetStream::getObjectStore(const QString& bucket) {
+    // If something throws, it will be cleaned up by the unique_ptr's destructor instead of being leaked.
+    // We can't use make_unique because we're relying on the friend declaration.
+    auto store = std::unique_ptr<ObjectStore>(new ObjectStore(this));
+    checkError(js_ObjectStore(&store->m_objStore, m_jsCtx, bucket.toUtf8().constData()));
+    return store.release();
+}
+
+void JetStream::deleteObjectStore(const QString& bucket) const {
+    checkError(js_DeleteObjectStore(m_jsCtx, bucket.toUtf8().constData()));
+}
+
 void Message::ack() const {
     jsErrCode jsErr = {};
     const natsStatus s = natsMsg_AckSync(m_natsMsg.get(), nullptr, &jsErr);
@@ -208,6 +241,8 @@ void JetStream::waitForPublishCompleted(const std::optional<NatsTimeout> timeout
 
 Subscription* JetStream::subscribe(const QString& subject, const QString& stream, const QString& consumer) {
     // manualAck=true: avoid _autoAckCB in cnats internals, because it takes over ownership of delivered messages
+    // If something throws, it will be cleaned up by the unique_ptr's destructor instead of being leaked.
+    // We can't use make_unique because we're relying on the friend declaration.
     auto sub = std::unique_ptr<Subscription>(new Subscription(nullptr));
     jsErrCode jsErr = {};
     convertAndHandle(JsSubOptions{stream, consumer}, /*manualAck=*/true, [&](jsSubOptions& subOpts) {
@@ -228,6 +263,8 @@ Subscription* JetStream::subscribe(const QString& subject, const QString& stream
 }
 
 PullSubscription* JetStream::pullSubscribe(const QString& subject, const QString& stream, const QString& consumer) {
+    // If something throws, it will be cleaned up by the unique_ptr's destructor instead of being leaked.
+    // We can't use make_unique because we're relying on the friend declaration.
     auto sub = std::unique_ptr<PullSubscription>(new PullSubscription(nullptr));
     jsErrCode jsErr = {};
     convertAndHandle(JsSubOptions{stream, consumer}, /*manualAck=*/false, [&](jsSubOptions& subOpts) {
@@ -256,4 +293,55 @@ void JetStream::doAsyncPublish(const Message& msg, jsPubOptions* opts) const {
     // js_PublishMsgAsync is tricky to manage lifetime of natsMsg, so let's go the safe way
     // TODO headers will require js_PublishMsgAsync
     checkError(js_PublishAsync(m_jsCtx, msg.subject.toUtf8().constData(), msg.data.constData(), msg.data.size(), opts));
+}
+
+ObjectStore::~ObjectStore() noexcept { objStore_Destroy(m_objStore); }
+
+ObjStoreInfo ObjectStore::putString(const QString& name, const QString& data) const {
+    objStoreInfo* info;
+    checkError(objStore_PutString(&info, m_objStore, name.toUtf8().constData(), data.toUtf8().constData()));
+    return fromC(ObjStoreInfoPtr(info));
+}
+
+ObjStoreInfo ObjectStore::putBytes(const QString& name, const QByteArray& data) const {
+    objStoreInfo* info;
+    checkError(objStore_PutBytes(&info, m_objStore, name.toUtf8().constData(), data.constData(), data.size()));
+    return fromC(ObjStoreInfoPtr(info));
+}
+
+ObjStoreInfo ObjectStore::putFile(const std::filesystem::path& path) const {
+    objStoreInfo* info;
+    checkError(objStore_PutFile(&info, m_objStore, path.string().c_str()));
+    return fromC(ObjStoreInfoPtr(info));
+}
+
+QString ObjectStore::getString(const QString& name, const ObjStoreOptions& options) const {
+    return convertAndHandle(options, [&](objStoreOptions& opts) {
+        char* data;
+        checkError(objStore_GetString(&data, m_objStore, name.toUtf8().constData(), &opts));
+        const QString result = QString::fromUtf8(data);
+        free(data);
+        return result;
+    });
+}
+
+QByteArray ObjectStore::getBytes(const QString& name, const ObjStoreOptions& options) const {
+    return convertAndHandle(options, [&](objStoreOptions& opts) {
+        void* data;
+        int dataLen;
+        checkError(objStore_GetBytes(&data, &dataLen, m_objStore, name.toUtf8().constData(), &opts));
+        const QByteArray result(static_cast<const char*>(data), dataLen);
+        free(data);
+        return result;
+    });
+}
+
+void ObjectStore::getFile(
+    const QString& name,
+    const std::filesystem::path& path,
+    const ObjStoreOptions& options
+) const {
+    return convertAndHandle(options, [&](objStoreOptions& opts) {
+        checkError(objStore_GetFile(m_objStore, name.toUtf8().constData(), path.string().c_str(), &opts));
+    });
 }

@@ -81,7 +81,6 @@ void asyncPublish(const Message& msg, int64_t timeout = -1);
 void waitForPublishCompleted(int64_t timeout = -1);
 Subscription* subscribe(const QString& subject, const QString& stream, const QString& push_consumer);
 PullSubscription* pullSubscribe(const QString& subject, const QString& stream, const QString& pull_consumer);
-jsCtx* getJsContext() const;
 ```
 ### Signals
 ```cpp

@@ -27,30 +27,124 @@ void checkError(natsStatus s) {
 
 void subscriptionCallback(natsConnection* /*nc*/, natsSubscription* /*sub*/, natsMsg* msg, void* closure) {
     auto* const sub = reinterpret_cast<Subscription*>(closure);
-
     const Message m = fromC(NatsMsgPtr(msg));
     Q_EMIT sub->received(m);
 }
 
-Message fromC(NatsMsgPtr msg) { return Message(msg.release()); }
+MessageHeaders readHeaderFields(const HeaderKeysFn& getKeys, const HeaderValuesFn& getValues) {
+    MessageHeaders result;
 
-JsPublishAck fromC(const JsPubAckPtr& ack) {
-    JsPublishAck result;
-    result.stream = QString::fromUtf8(ack->Stream);
-    result.sequence = ack->Sequence;
-    result.domain = QString::fromUtf8(ack->Domain);
-    result.duplicate = ack->Duplicate;
-    return result;
-}
-
-NatsMetadata fromC(const natsMetadata& meta) {
-    NatsMetadata result;
-    // natsMetadata.List is [k, v, k, v, ...]; Count is the number of k/v pairs
-    for (int i = 0; i < meta.Count; i++) {
-        result.insert(QString::fromUtf8(meta.List[i * 2]), QByteArray(meta.List[i * 2 + 1]));
+    const char** keys = nullptr;
+    int keyCount = 0;
+    switch (const natsStatus s = getKeys(&keys, &keyCount)) {
+    case NATS_OK:
+    case NATS_NOT_FOUND: // Apparently if there are no headers, NOT_FOUND comes back instead of a keycount of 0
+        break;
+    default:
+        checkError(s);
     }
+
+    for (int i = 0; i < keyCount; i++) {
+        const char** values = nullptr;
+        int valueCount = 0;
+        checkError(getValues(keys[i], &values, &valueCount));
+
+        const QString key = QString::fromUtf8(keys[i]);
+        for (int j = 0; j < valueCount; j++)
+            result.insert(key, QByteArray(values[j]));
+
+        free(values);
+    }
+
+    free(keys);
     return result;
 }
+
+JsClusterInfo fromC(const jsClusterInfo& cluster) {
+    JsClusterInfo result;
+    result.name = toOptionalQString(cluster.Name);
+    result.leader = toOptionalQString(cluster.Leader);
+    result.replicas.reserve(cluster.ReplicasLen);
+    for (int i = 0; i < cluster.ReplicasLen; i++)
+        result.replicas.append(fromC(*cluster.Replicas[i]));
+    return result;
+}
+
+JsConsumerConfig fromC(const jsConsumerConfig& cfg) {
+    JsConsumerConfig result;
+    result.name = toOptionalQString(cfg.Name);
+    result.durable = toOptionalQString(cfg.Durable);
+    result.description = toOptionalQString(cfg.Description);
+    // Enums are set to -1 when not specified (see convertAndHandle(JsConsumerConfig))
+    result.deliverPolicy = static_cast<int>(cfg.DeliverPolicy) == -1
+        ? std::nullopt
+        : std::optional(static_cast<JsDeliverPolicy>(cfg.DeliverPolicy));
+    result.ackPolicy =
+        static_cast<int>(cfg.AckPolicy) == -1 ? std::nullopt : std::optional(static_cast<JsAckPolicy>(cfg.AckPolicy));
+    result.replayPolicy = static_cast<int>(cfg.ReplayPolicy) == -1
+        ? std::nullopt
+        : std::optional(static_cast<JsReplayPolicy>(cfg.ReplayPolicy));
+    result.optStartSeq = cfg.OptStartSeq;
+    result.optStartTime = toOptionalTimePoint(cfg.OptStartTime);
+    result.ackWait = NatsDuration{cfg.AckWait};
+    result.maxDeliver = cfg.MaxDeliver;
+    result.backOff.reserve(cfg.BackOffLen);
+    for (int i = 0; i < cfg.BackOffLen; ++i)
+        result.backOff.append(NatsDuration{cfg.BackOff[i]});
+    result.filterSubject = toOptionalQString(cfg.FilterSubject);
+    result.rateLimit = cfg.RateLimit > 0 ? std::optional(cfg.RateLimit) : std::nullopt;
+    result.sampleFrequency = toOptionalQString(cfg.SampleFrequency);
+    result.maxWaiting = cfg.MaxWaiting;
+    result.maxAckPending = cfg.MaxAckPending;
+    result.flowControl = cfg.FlowControl;
+    result.heartbeat = NatsDuration{cfg.Heartbeat};
+    result.headersOnly = cfg.HeadersOnly;
+    result.maxRequestBatch = cfg.MaxRequestBatch;
+    result.maxRequestExpires = NatsDuration{cfg.MaxRequestExpires};
+    result.maxRequestMaxBytes = cfg.MaxRequestMaxBytes;
+    result.deliverSubject = toOptionalQString(cfg.DeliverSubject);
+    result.deliverGroup = toOptionalQString(cfg.DeliverGroup);
+    result.inactiveThreshold = NatsDuration{cfg.InactiveThreshold};
+    result.replicas = cfg.Replicas;
+    result.memoryStorage = cfg.MemoryStorage;
+    result.filterSubjects.reserve(cfg.FilterSubjectsLen);
+    for (int i = 0; i < cfg.FilterSubjectsLen; ++i)
+        result.filterSubjects.append(QString::fromUtf8(cfg.FilterSubjects[i]));
+    result.metadata = fromC(cfg.Metadata);
+    result.pauseUntil = toOptionalTimePoint(cfg.PauseUntil);
+    return result;
+}
+
+JsConsumerInfo fromC(const jsConsumerInfo& info) {
+    JsConsumerInfo result;
+    result.stream = QString::fromUtf8(info.Stream);
+    result.name = QString::fromUtf8(info.Name);
+    result.created = toTimePoint(info.Created);
+    result.config = fromC(*info.Config);
+    result.delivered = fromC(info.Delivered);
+    result.ackFloor = fromC(info.AckFloor);
+    result.numAckPending = info.NumAckPending;
+    result.numRedelivered = info.NumRedelivered;
+    result.numWaiting = info.NumWaiting;
+    result.numPending = info.NumPending;
+    result.cluster = info.Cluster ? std::optional(fromC(*info.Cluster)) : std::nullopt;
+    result.pushBound = info.PushBound;
+    result.paused = info.Paused;
+    result.pauseRemaining = NatsDuration{info.PauseRemaining};
+    return result;
+}
+
+JsConsumerInfo fromC(const JsConsumerInfoPtr& info) { return fromC(*info); }
+
+JsConsumerPauseResponse fromC(const jsConsumerPauseResponse& resp) {
+    JsConsumerPauseResponse result;
+    result.paused = resp.Paused;
+    result.pauseUntil = toOptionalTimePoint(resp.PauseUntil);
+    result.pauseRemaining = NatsDuration{resp.PauseRemaining};
+    return result;
+}
+
+JsConsumerPauseResponse fromC(const JsConsumerPauseResponsePtr& resp) { return fromC(*resp); }
 
 JsExternalStream fromC(const jsExternalStream& ext) {
     JsExternalStream result;
@@ -59,28 +153,22 @@ JsExternalStream fromC(const jsExternalStream& ext) {
     return result;
 }
 
-JsSubjectTransformConfig fromC(const jsSubjectTransformConfig& st) {
-    JsSubjectTransformConfig result;
-    result.source = toOptionalQString(st.Source);
-    result.destination = QString::fromUtf8(st.Destination);
+JsLostStreamData fromC(const jsLostStreamData& lost) {
+    JsLostStreamData result;
+    result.msgs.reserve(lost.MsgsLen);
+    for (int i = 0; i < lost.MsgsLen; i++)
+        result.msgs.append(lost.Msgs[i]);
+    result.bytes = lost.Bytes;
     return result;
 }
 
-JsStreamConsumerLimits fromC(const jsStreamConsumerLimits& lim) {
-    JsStreamConsumerLimits result;
-    result.inactiveThreshold = NatsDuration{lim.InactiveThreshold};
-    result.maxAckPending = lim.MaxAckPending;
-    return result;
-}
-
-JsStreamSource fromC(const jsStreamSource& src) {
-    JsStreamSource result;
-    result.name = QString::fromUtf8(src.Name);
-    result.optStartSeq = src.OptStartSeq;
-    result.optStartTime = toOptionalTimePoint(src.OptStartTime);
-    result.filterSubject = toOptionalQString(src.FilterSubject);
-    result.external = src.External ? std::optional(fromC(*src.External)) : std::nullopt;
-    result.domain = toOptionalQString(src.Domain);
+JsPeerInfo fromC(const jsPeerInfo& peer) {
+    JsPeerInfo result;
+    result.name = QString::fromUtf8(peer.Name);
+    result.current = peer.Current;
+    result.offline = peer.Offline;
+    result.active = NatsDuration{peer.Active};
+    result.lag = peer.Lag;
     return result;
 }
 
@@ -88,11 +176,21 @@ JsPlacement fromC(const jsPlacement& p) {
     JsPlacement result;
     result.cluster = QString::fromUtf8(p.Cluster);
     result.tags.reserve(p.TagsLen);
-    for (int i = 0; i < p.TagsLen; i++) {
+    for (int i = 0; i < p.TagsLen; i++)
         result.tags.append(QString::fromUtf8(p.Tags[i]));
-    }
     return result;
 }
+
+JsPublishAck fromC(const jsPubAck& ack) {
+    JsPublishAck result;
+    result.stream = QString::fromUtf8(ack.Stream);
+    result.sequence = ack.Sequence;
+    result.domain = QString::fromUtf8(ack.Domain);
+    result.duplicate = ack.Duplicate;
+    return result;
+}
+
+JsPublishAck fromC(const JsPubAckPtr& ack) { return fromC(*ack); }
 
 JsRePublish fromC(const jsRePublish& rp) {
     JsRePublish result;
@@ -102,14 +200,36 @@ JsRePublish fromC(const jsRePublish& rp) {
     return result;
 }
 
+JsSequenceInfo fromC(const jsSequenceInfo& seq) {
+    JsSequenceInfo result;
+    result.consumer = seq.Consumer;
+    result.stream = seq.Stream;
+    result.last = toTimePoint(seq.Last);
+    return result;
+}
+
+JsSequencePair fromC(const jsSequencePair& seq) {
+    JsSequencePair result;
+    result.consumer = seq.Consumer;
+    result.stream = seq.Stream;
+    return result;
+}
+
+JsStreamAlternate fromC(const jsStreamAlternate& alt) {
+    JsStreamAlternate result;
+    result.name = QString::fromUtf8(alt.Name);
+    result.domain = QString::fromUtf8(alt.Domain);
+    result.cluster = QString::fromUtf8(alt.Cluster);
+    return result;
+}
+
 JsStreamConfig fromC(const jsStreamConfig& cfg) {
     JsStreamConfig result;
     result.name = QString::fromUtf8(cfg.Name);
     result.description = toOptionalQString(cfg.Description);
     result.subjects.reserve(cfg.SubjectsLen);
-    for (int i = 0; i < cfg.SubjectsLen; i++) {
+    for (int i = 0; i < cfg.SubjectsLen; i++)
         result.subjects.append(QString::fromUtf8(cfg.Subjects[i]));
-    }
     result.retention = static_cast<JsRetentionPolicy>(cfg.Retention);
     result.discard = static_cast<JsDiscardPolicy>(cfg.Discard);
     result.storage = static_cast<JsStorageType>(cfg.Storage);
@@ -133,9 +253,8 @@ JsStreamConfig fromC(const jsStreamConfig& cfg) {
     result.placement = cfg.Placement ? std::optional(fromC(*cfg.Placement)) : std::nullopt;
     result.mirror = cfg.Mirror ? std::optional(fromC(*cfg.Mirror)) : std::nullopt;
     result.sources.reserve(cfg.SourcesLen);
-    for (int i = 0; i < cfg.SourcesLen; i++) {
+    for (int i = 0; i < cfg.SourcesLen; i++)
         result.sources.append(fromC(*cfg.Sources[i]));
-    }
     result.sealed = cfg.Sealed;
     result.denyDelete = cfg.DenyDelete;
     result.denyPurge = cfg.DenyPurge;
@@ -151,29 +270,52 @@ JsStreamConfig fromC(const jsStreamConfig& cfg) {
     return result;
 }
 
-JsLostStreamData fromC(const jsLostStreamData& lost) {
-    JsLostStreamData result;
-    result.msgs.reserve(lost.MsgsLen);
-    for (int i = 0; i < lost.MsgsLen; i++) {
-        result.msgs.append(lost.Msgs[i]);
-    }
-    result.bytes = lost.Bytes;
+JsStreamConsumerLimits fromC(const jsStreamConsumerLimits& lim) {
+    JsStreamConsumerLimits result;
+    result.inactiveThreshold = NatsDuration{lim.InactiveThreshold};
+    result.maxAckPending = lim.MaxAckPending;
     return result;
 }
 
-JsStreamStateSubject fromC(const jsStreamStateSubject& subj) {
-    JsStreamStateSubject result;
-    result.subject = QString::fromUtf8(subj.Subject);
-    result.msgs = subj.Msgs;
+JsStreamInfo fromC(const jsStreamInfo& info) {
+    JsStreamInfo result;
+    result.config = fromC(*info.Config);
+    result.created = toTimePoint(info.Created);
+    result.state = fromC(info.State);
+    result.cluster = info.Cluster ? std::optional(fromC(*info.Cluster)) : std::nullopt;
+    result.mirror = info.Mirror ? std::optional(fromC(*info.Mirror)) : std::nullopt;
+    result.sources.reserve(info.SourcesLen);
+    for (int i = 0; i < info.SourcesLen; i++)
+        result.sources.append(fromC(*info.Sources[i]));
+    result.alternates.reserve(info.AlternatesLen);
+    for (int i = 0; i < info.AlternatesLen; i++)
+        result.alternates.append(fromC(*info.Alternates[i]));
     return result;
 }
 
-QList<JsStreamStateSubject> fromC(const jsStreamStateSubjects& subjs) {
-    QList<JsStreamStateSubject> result;
-    result.reserve(subjs.Count);
-    for (int i = 0; i < subjs.Count; i++) {
-        result.append(fromC(subjs.List[i]));
-    }
+JsStreamInfo fromC(const JsStreamInfoPtr& info) { return fromC(*info); }
+
+JsStreamSource fromC(const jsStreamSource& src) {
+    JsStreamSource result;
+    result.name = QString::fromUtf8(src.Name);
+    result.optStartSeq = src.OptStartSeq;
+    result.optStartTime = toOptionalTimePoint(src.OptStartTime);
+    result.filterSubject = toOptionalQString(src.FilterSubject);
+    result.external = src.External ? std::optional(fromC(*src.External)) : std::nullopt;
+    result.domain = toOptionalQString(src.Domain);
+    return result;
+}
+
+JsStreamSourceInfo fromC(const jsStreamSourceInfo& src) {
+    JsStreamSourceInfo result;
+    result.name = QString::fromUtf8(src.Name);
+    result.external = src.External ? std::optional(fromC(*src.External)) : std::nullopt;
+    result.lag = src.Lag;
+    result.active = NatsDuration{src.Active};
+    result.filterSubject = toOptionalQString(src.FilterSubject);
+    result.subjectTransforms.reserve(src.SubjectTransformsLen);
+    for (int i = 0; i < src.SubjectTransformsLen; i++)
+        result.subjectTransforms.append(fromC(src.SubjectTransforms[i]));
     return result;
 }
 
@@ -189,161 +331,78 @@ JsStreamState fromC(const jsStreamState& state) {
     result.subjects = state.Subjects ? std::optional(fromC(*state.Subjects)) : std::nullopt;
     result.numDeleted = state.NumDeleted;
     result.deleted.reserve(state.DeletedLen);
-    for (int i = 0; i < state.DeletedLen; i++) {
+    for (int i = 0; i < state.DeletedLen; i++)
         result.deleted.append(state.Deleted[i]);
-    }
     result.lost = state.Lost ? std::optional(fromC(*state.Lost)) : std::nullopt;
     result.consumers = state.Consumers;
     return result;
 }
 
-JsPeerInfo fromC(const jsPeerInfo& peer) {
-    JsPeerInfo result;
-    result.name = QString::fromUtf8(peer.Name);
-    result.current = peer.Current;
-    result.offline = peer.Offline;
-    result.active = NatsDuration{peer.Active};
-    result.lag = peer.Lag;
+JsStreamStateSubject fromC(const jsStreamStateSubject& subj) {
+    JsStreamStateSubject result;
+    result.subject = QString::fromUtf8(subj.Subject);
+    result.msgs = subj.Msgs;
     return result;
 }
 
-JsClusterInfo fromC(const jsClusterInfo& cluster) {
-    JsClusterInfo result;
-    result.name = toOptionalQString(cluster.Name);
-    result.leader = toOptionalQString(cluster.Leader);
-    result.replicas.reserve(cluster.ReplicasLen);
-    for (int i = 0; i < cluster.ReplicasLen; i++) {
-        result.replicas.append(fromC(*cluster.Replicas[i]));
-    }
+QList<JsStreamStateSubject> fromC(const jsStreamStateSubjects& subjs) {
+    QList<JsStreamStateSubject> result;
+    result.reserve(subjs.Count);
+    for (int i = 0; i < subjs.Count; i++)
+        result.append(fromC(subjs.List[i]));
     return result;
 }
 
-JsStreamSourceInfo fromC(const jsStreamSourceInfo& src) {
-    JsStreamSourceInfo result;
-    result.name = QString::fromUtf8(src.Name);
-    result.external = src.External ? std::optional(fromC(*src.External)) : std::nullopt;
-    result.lag = src.Lag;
-    result.active = NatsDuration{src.Active};
-    result.filterSubject = toOptionalQString(src.FilterSubject);
-    result.subjectTransforms.reserve(src.SubjectTransformsLen);
-    for (int i = 0; i < src.SubjectTransformsLen; i++) {
-        result.subjectTransforms.append(fromC(src.SubjectTransforms[i]));
-    }
+JsSubjectTransformConfig fromC(const jsSubjectTransformConfig& st) {
+    JsSubjectTransformConfig result;
+    result.source = toOptionalQString(st.Source);
+    result.destination = QString::fromUtf8(st.Destination);
     return result;
 }
 
-JsStreamAlternate fromC(const jsStreamAlternate& alt) {
-    JsStreamAlternate result;
-    result.name = QString::fromUtf8(alt.Name);
-    result.domain = QString::fromUtf8(alt.Domain);
-    result.cluster = QString::fromUtf8(alt.Cluster);
+Message fromC(NatsMsgPtr msg) { return Message(msg.release()); }
+
+MessageHeaders fromC(natsHeader* h) {
+    if (!h)
+        return {};
+    return readHeaderFields(
+        [h](const char*** keys, int* count) { return natsHeader_Keys(h, keys, count); },
+        [h](const char* key, const char*** vals, int* count) { return natsHeader_Values(h, key, vals, count); }
+    );
+}
+
+NatsMetadata fromC(const natsMetadata& meta) {
+    NatsMetadata result;
+    // natsMetadata.List is [k, v, k, v, ...]; Count is the number of k/v pairs
+    for (int i = 0; i < meta.Count; i++)
+        result.insert(QString::fromUtf8(meta.List[i * 2]), QByteArray(meta.List[i * 2 + 1]));
     return result;
 }
 
-JsStreamInfo fromC(const JsStreamInfoPtr& info) {
-    JsStreamInfo result;
-    result.config = fromC(*info->Config);
-    result.created = toTimePoint(info->Created);
-    result.state = fromC(info->State);
-    result.cluster = info->Cluster ? std::optional(fromC(*info->Cluster)) : std::nullopt;
-    result.mirror = info->Mirror ? std::optional(fromC(*info->Mirror)) : std::nullopt;
-    result.sources.reserve(info->SourcesLen);
-    for (int i = 0; i < info->SourcesLen; i++) {
-        result.sources.append(fromC(*info->Sources[i]));
-    }
-    result.alternates.reserve(info->AlternatesLen);
-    for (int i = 0; i < info->AlternatesLen; i++) {
-        result.alternates.append(fromC(*info->Alternates[i]));
-    }
+ObjStoreInfo fromC(const objStoreInfo& info) {
+    ObjStoreInfo result;
+    result.meta = fromC(info.Meta);
+    result.bucket = QString::fromUtf8(info.Bucket);
+    result.nuid = QString::fromUtf8(info.NUID);
+    result.size = info.Size;
+    result.modTime = toTimePoint(info.ModTime);
+    result.chunks = info.Chunks;
+    result.digest = toOptionalQString(info.Digest);
+    result.deleted = info.Deleted;
     return result;
 }
 
-JsConsumerPauseResponse fromC(const JsConsumerPauseResponsePtr& resp) {
-    JsConsumerPauseResponse result;
-    result.paused = resp->Paused;
-    result.pauseUntil = toOptionalTimePoint(resp->PauseUntil);
-    result.pauseRemaining = NatsDuration{resp->PauseRemaining};
-    return result;
+ObjStoreInfo fromC(const ObjStoreInfoPtr& info) {
+    return fromC(*info);
 }
 
-JsConsumerConfig fromC(const jsConsumerConfig& cfg) {
-    JsConsumerConfig result;
-    result.name = toOptionalQString(cfg.Name);
-    result.durable = toOptionalQString(cfg.Durable);
-    result.description = toOptionalQString(cfg.Description);
-    // Enums are set to -1 when not specified (see convertAndHandle(JsConsumerConfig))
-    result.deliverPolicy = static_cast<int>(cfg.DeliverPolicy) == -1
-        ? std::nullopt
-        : std::optional(static_cast<JsDeliverPolicy>(cfg.DeliverPolicy));
-    result.ackPolicy =
-        static_cast<int>(cfg.AckPolicy) == -1 ? std::nullopt : std::optional(static_cast<JsAckPolicy>(cfg.AckPolicy));
-    result.replayPolicy = static_cast<int>(cfg.ReplayPolicy) == -1
-        ? std::nullopt
-        : std::optional(static_cast<JsReplayPolicy>(cfg.ReplayPolicy));
-    result.optStartSeq = cfg.OptStartSeq;
-    result.optStartTime = toOptionalTimePoint(cfg.OptStartTime);
-    result.ackWait = NatsDuration{cfg.AckWait};
-    result.maxDeliver = cfg.MaxDeliver;
-    result.backOff.reserve(cfg.BackOffLen);
-    for (int i = 0; i < cfg.BackOffLen; ++i) {
-        result.backOff.append(NatsDuration{cfg.BackOff[i]});
-    }
-    result.filterSubject = toOptionalQString(cfg.FilterSubject);
-    result.rateLimit = cfg.RateLimit > 0 ? std::optional(cfg.RateLimit) : std::nullopt;
-    result.sampleFrequency = toOptionalQString(cfg.SampleFrequency);
-    result.maxWaiting = cfg.MaxWaiting;
-    result.maxAckPending = cfg.MaxAckPending;
-    result.flowControl = cfg.FlowControl;
-    result.heartbeat = NatsDuration{cfg.Heartbeat};
-    result.headersOnly = cfg.HeadersOnly;
-    result.maxRequestBatch = cfg.MaxRequestBatch;
-    result.maxRequestExpires = NatsDuration{cfg.MaxRequestExpires};
-    result.maxRequestMaxBytes = cfg.MaxRequestMaxBytes;
-    result.deliverSubject = toOptionalQString(cfg.DeliverSubject);
-    result.deliverGroup = toOptionalQString(cfg.DeliverGroup);
-    result.inactiveThreshold = NatsDuration{cfg.InactiveThreshold};
-    result.replicas = cfg.Replicas;
-    result.memoryStorage = cfg.MemoryStorage;
-    result.filterSubjects.reserve(cfg.FilterSubjectsLen);
-    for (int i = 0; i < cfg.FilterSubjectsLen; ++i) {
-        result.filterSubjects.append(QString::fromUtf8(cfg.FilterSubjects[i]));
-    }
-    result.metadata = fromC(cfg.Metadata);
-    result.pauseUntil = toOptionalTimePoint(cfg.PauseUntil);
-    return result;
-}
-
-JsSequencePair fromC(const jsSequencePair& seq) {
-    JsSequencePair result;
-    result.consumer = seq.Consumer;
-    result.stream = seq.Stream;
-    return result;
-}
-
-JsSequenceInfo fromC(const jsSequenceInfo& seq) {
-    JsSequenceInfo result;
-    result.consumer = seq.Consumer;
-    result.stream = seq.Stream;
-    result.last = toTimePoint(seq.Last);
-    return result;
-}
-
-JsConsumerInfo fromC(const JsConsumerInfoPtr& info) {
-    JsConsumerInfo result;
-    result.stream = QString::fromUtf8(info->Stream);
-    result.name = QString::fromUtf8(info->Name);
-    result.created = toTimePoint(info->Created);
-    result.config = fromC(*info->Config);
-    result.delivered = fromC(info->Delivered);
-    result.ackFloor = fromC(info->AckFloor);
-    result.numAckPending = info->NumAckPending;
-    result.numRedelivered = info->NumRedelivered;
-    result.numWaiting = info->NumWaiting;
-    result.numPending = info->NumPending;
-    result.cluster = info->Cluster ? std::optional(fromC(*info->Cluster)) : std::nullopt;
-    result.pushBound = info->PushBound;
-    result.paused = info->Paused;
-    result.pauseRemaining = NatsDuration{info->PauseRemaining};
+ObjStoreMeta fromC(const objStoreMeta& meta) {
+    ObjStoreMeta result;
+    result.name = QString::fromUtf8(meta.Name);
+    result.description = toOptionalQString(meta.Description);
+    result.headers = fromC(meta.Headers);
+    result.metadata = fromC(meta.Metadata);
+    result.opts.chunkSize = meta.Opts.ChunkSize;
     return result;
 }
 
