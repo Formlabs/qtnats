@@ -53,6 +53,7 @@ private Q_SLOTS:
     void publish();
     void pullSubscribe();
     void pushSubscribe();
+    void readWriteObject();
 };
 
 void JetStreamTestCase::initTestCase() {
@@ -371,6 +372,90 @@ void JetStreamTestCase::pushSubscribe() {
         // Cleanup consumer
         js->deleteConsumer(streamName, config.name.value());
     } catch (const QException &e) {
+        QFAIL(e.what());
+    }
+}
+
+// Writes an object to a stream and reads it back, verifying that the content is preserved.
+void JetStreamTestCase::readWriteObject() {
+    try {
+        constexpr auto bucket = "test_bucket";
+
+        // Initialize the object store
+        const ObjectStore* objectStore = js->createObjectStore({
+            .bucket = bucket,
+            .description = "Test bucket for read/write object test",
+        });
+
+        // Initialize the underlying test data; we'll use the following test string for everything,
+        // but we'll use all three put methods to verify them
+        constexpr auto testString =
+            "Oh! And it is lovely! Just beautiful. You know you are quite a decorator. It's amazing what you've done "
+            "with such a modest budget. I like that boulder. That is a nice boulder. I guess you don't entertain much, "
+            "do you?";
+
+        constexpr auto asString = "as_string";
+        constexpr auto asBytes = "as_bytes";
+        const auto asFile = std::filesystem::temp_directory_path() / "as_file";
+
+        // Put the object in the store using all three methods
+        {
+            const auto storeInfo = objectStore->putString(asString, testString);
+            QVERIFY(storeInfo.size == strlen(testString));
+        }
+        {
+            const auto storeInfo = objectStore->putBytes(asBytes, QByteArray(testString));
+            QVERIFY(storeInfo.size == strlen(testString));
+        }
+        {
+            // For putFile, we need to create a temporary file with the test content
+            QFile tempFile{asFile};
+            QVERIFY(tempFile.open(QIODevice::WriteOnly));
+            tempFile.write(testString);
+            tempFile.close();
+
+            const auto storeInfo = objectStore->putFile(asFile);
+            QVERIFY(storeInfo.size == strlen(testString));
+
+            // Cleanup the temporary file
+            tempFile.remove();
+        }
+
+        // Validate that the object can be retrieved and matches the original content, using both the API and CLI
+        natsCli.setProcessChannelMode(QProcess::ForwardedChannels);
+
+        // We don't check the contents of the CLI output here, just that it exits successfully, since we already check
+        // the contents using the API.
+        {
+            QVERIFY(objectStore->getString(asString, {}) == testString);
+
+            natsCli.start("nats", QStringList() << "object" << "get" << bucket << asString << "--force");
+            QVERIFY2(natsCli.waitForFinished(), qPrintable(natsCli.errorString()));
+            QVERIFY2(natsCli.exitCode() == 0, "nats CLI failed (see output above)");
+        }
+        {
+            QVERIFY(objectStore->getBytes(asBytes, {}) == testString);
+
+            natsCli.start("nats", QStringList() << "object" << "get" << bucket << asBytes << "--force");
+            QVERIFY2(natsCli.waitForFinished(), qPrintable(natsCli.errorString()));
+            QVERIFY2(natsCli.exitCode() == 0, "nats CLI failed (see output above)");
+        }
+        {
+            objectStore->getFile(asFile.c_str(), asFile, {});
+            QFile tempFile{asFile};
+            QVERIFY(tempFile.open(QIODevice::ReadOnly));
+            const QString fileContent = tempFile.readAll();
+            tempFile.close();
+            QCOMPARE(fileContent, QString{testString});
+
+            natsCli.start("nats", QStringList() << "object" << "get" << bucket << asFile.c_str() << "--force");
+            QVERIFY2(natsCli.waitForFinished(), qPrintable(natsCli.errorString()));
+            QVERIFY2(natsCli.exitCode() == 0, "nats CLI failed (see output above)");
+        }
+
+        // Cleanup
+        js->deleteObjectStore(bucket);
+    } catch (const QException& e) {
         QFAIL(e.what());
     }
 }
