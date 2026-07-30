@@ -94,6 +94,26 @@ JsStreamInfo JetStream::getStreamInfo(const QString& stream, const std::optional
     });
 }
 
+QList<QString> JetStream::streamNames(const std::optional<JsOptions>& opts) const {
+    return convertOptionalAndHandle(opts, [&](jsOptions* jsOpts) {
+        jsStreamNamesList* rawList = nullptr;
+        jsErrCode jsErr = {};
+        const natsStatus s = js_StreamNames(&rawList, m_jsCtx, jsOpts, &jsErr);
+        const JsStreamNamesListPtr list(rawList);
+        // A server with no matching streams reports NATS_NOT_FOUND rather than an empty list.
+        if (s == NATS_NOT_FOUND) {
+            return QList<QString>{};
+        }
+        checkJsError(s, jsErr);
+        QList<QString> result;
+        result.reserve(list->Count);
+        for (int i = 0; i < list->Count; ++i) {
+            result.append(QString::fromUtf8(list->List[i]));
+        }
+        return result;
+    });
+}
+
 JsConsumerInfo JetStream::addConsumer(
     const QString& stream,
     const JsConsumerConfig& config,

@@ -121,6 +121,9 @@ struct JsConsumerPauseResponseDeleter {
 struct JsStreamInfoDeleter {
     void operator()(jsStreamInfo* p) const { jsStreamInfo_Destroy(p); }
 };
+struct JsStreamNamesListDeleter {
+    void operator()(jsStreamNamesList* p) const { jsStreamNamesList_Destroy(p); }
+};
 struct NatsHeaderDeleter {
     void operator()(natsHeader* p) const { natsHeader_Destroy(p); }
 };
@@ -146,6 +149,7 @@ using JsConsumerInfoPtr = std::unique_ptr<jsConsumerInfo, JsConsumerInfoDeleter>
 using JsConsumerPauseResponsePtr = std::unique_ptr<jsConsumerPauseResponse, JsConsumerPauseResponseDeleter>;
 using JsPubAckPtr = std::unique_ptr<jsPubAck, JsPubAckDeleter>;
 using JsStreamInfoPtr = std::unique_ptr<jsStreamInfo, JsStreamInfoDeleter>;
+using JsStreamNamesListPtr = std::unique_ptr<jsStreamNamesList, JsStreamNamesListDeleter>;
 using NatsHeaderPtr = std::unique_ptr<natsHeader, NatsHeaderDeleter>;
 using NatsMsgPtr = std::unique_ptr<natsMsg, NatsMsgDeleter>;
 using NatsOptsPtr = std::unique_ptr<natsOptions, NatsOptsDeleter>;

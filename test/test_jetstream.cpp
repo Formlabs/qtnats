@@ -48,6 +48,7 @@ private Q_SLOTS:
     void cleanupTestCase();
 
     void streamManagement() const;
+    void listStreamNames() const;
     void maxMsgsRetention() const;
     void discardPolicies() const;
     void publish();
@@ -131,6 +132,37 @@ void JetStreamTestCase::streamManagement() const {
 
         // Deleting a non-existent stream should throw
         QVERIFY_THROWS_EXCEPTION(QtNats::JetStreamException, js->deleteStream("MGMT_STREAM"));
+    } catch (const QException& e) {
+        QFAIL(e.what());
+    }
+}
+
+/// Verifies stream-name enumeration: created streams appear, deleted streams disappear, a subject
+/// filter restricts the result, and zero matching streams yields an empty list.
+void JetStreamTestCase::listStreamNames() const {
+    try {
+        QVERIFY(js->streamNames().contains("MY_STREAM"));
+
+        JsStreamConfig config;
+        config.name = "NAMES_STREAM";
+        config.subjects = {"names.>"};
+        config.storage = JsStorageType::Memory;
+        js->addStream(config);
+
+        const auto names = js->streamNames();
+        QVERIFY(names.contains("MY_STREAM"));
+        QVERIFY(names.contains("NAMES_STREAM"));
+
+        JsOptions filtered;
+        filtered.stream.info.subjectsFilter = "names.>";
+        QCOMPARE(js->streamNames(filtered), QList<QString>{"NAMES_STREAM"});
+
+        js->deleteStream("NAMES_STREAM");
+        QVERIFY(!js->streamNames().contains("NAMES_STREAM"));
+
+        // Zero matching streams is reported by the server as "not found" and must surface as an
+        // empty list, not an error.
+        QVERIFY(js->streamNames(filtered).isEmpty());
     } catch (const QException& e) {
         QFAIL(e.what());
     }
