@@ -730,6 +730,11 @@ public:
 
     JsStreamInfo getStreamInfo(const QString& stream, const std::optional<JsOptions>& opts = std::nullopt) const;
 
+    /// List the names of all streams on the server, optionally restricted to streams whose
+    /// subjects overlap opts->stream.info.subjectsFilter. Returns an empty list when no stream
+    /// matches.
+    [[nodiscard]] QList<QString> streamNames(const std::optional<JsOptions>& opts = std::nullopt) const;
+
     // General consumer functions
 
     JsConsumerInfo addConsumer(
