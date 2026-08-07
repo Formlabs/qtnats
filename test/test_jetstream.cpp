@@ -527,6 +527,18 @@ void JetStreamTestCase::readWriteObject() {
             QCOMPARE(objectStore->list().size(), 2);
         }
 
+        // status() reports the bucket's identity and configuration.
+        {
+            const auto status = objectStore->status();
+            QCOMPARE(status.bucket, QString{bucket});
+            QCOMPARE(status.description, std::optional<QString>{"Test bucket for read/write object test"});
+            QCOMPARE(status.storage, JsStorageType::File);
+            QCOMPARE(status.replicas, 1);
+            QVERIFY(!status.sealed);
+            QVERIFY(status.size > 0);
+            QCOMPARE(status.streamInfo.config.name, QString{"OBJ_"} + bucket);
+        }
+
         // Cleanup
         js->deleteObjectStore(bucket);
     } catch (const QException& e) {

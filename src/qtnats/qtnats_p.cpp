@@ -406,4 +406,27 @@ ObjStoreMeta fromC(const objStoreMeta& meta) {
     return result;
 }
 
+ObjStoreStatus fromC(const objStoreStatus& status) {
+    ObjStoreStatus result;
+    result.bucket = QString::fromUtf8(status.Bucket);
+    result.description = toOptionalQString(status.Description);
+    // TTL is reported in milliseconds; <= 0 means no expiry.
+    result.ttl = status.TTL > 0
+        ? std::optional(std::chrono::duration_cast<NatsDuration>(std::chrono::milliseconds{status.TTL}))
+        : std::nullopt;
+    result.storage = static_cast<JsStorageType>(status.Storage);
+    result.replicas = status.Replicas;
+    result.sealed = status.Sealed;
+    result.size = status.Size;
+    result.backingStore = QString::fromUtf8(status.BackingStore);
+    result.metadata = fromC(status.Metadata);
+    result.streamInfo = fromC(*status.StreamInfo);
+    result.isCompressed = status.IsCompressed;
+    return result;
+}
+
+ObjStoreStatus fromC(const ObjStoreStatusPtr& status) {
+    return fromC(*status);
+}
+
 } // namespace QtNats

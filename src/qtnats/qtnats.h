@@ -532,6 +532,20 @@ struct ObjStoreOptions {
     bool showDeleted = false; ///< Include deleted objects in results
 };
 
+struct ObjStoreStatus {
+    QString bucket;                       ///< Name of the object store
+    std::optional<QString> description;   ///< Description supplied when the bucket was created (nullopt if none)
+    std::optional<NatsDuration> ttl;      ///< How long objects are kept (nullopt = no expiry)
+    JsStorageType storage;                ///< Underlying JetStream storage backend
+    int replicas;                         ///< Number of storage replicas kept for the data
+    bool sealed;                          ///< True if the bucket is sealed and cannot be modified
+    uint64_t size;                        ///< Combined size of all data including metadata, in bytes
+    QString backingStore;                 ///< Technology used for storage (currently always "JetStream")
+    NatsMetadata metadata;                ///< User-supplied bucket-level metadata
+    JsStreamInfo streamInfo;              ///< Info for the stream backing the object store
+    bool isCompressed;                    ///< True if the data is compressed on disk
+};
+
 struct QTNATS_EXPORT Options {
     QList<QUrl> servers;
     QString user;
@@ -825,6 +839,10 @@ public:
     /// List metadata for every object in the bucket. Deleted objects are included only when
     /// options.showDeleted is set. Returns an empty list for an empty bucket.
     [[nodiscard]] QList<ObjStoreInfo> list(const ObjStoreOptions& options = {}) const;
+
+    /// Retrieve the runtime status of the bucket, including its name, configuration and size.
+    /// Requires a round-trip to the server.
+    [[nodiscard]] ObjStoreStatus status() const;
 
 private:
     explicit ObjectStore(QObject* parent) : QObject(parent) {}

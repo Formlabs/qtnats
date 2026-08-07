@@ -142,6 +142,9 @@ struct ObjStoreGetDeleter {
 struct ObjStoreInfoDeleter {
     void operator()(objStoreInfo* p) const { objStoreInfo_Destroy(p); }
 };
+struct ObjStoreStatusDeleter {
+    void operator()(objStoreStatus* p) const { objStoreStatus_Destroy(p); }
+};
 struct ObjStoreWatcherDeleter {
     void operator()(objStoreWatcher* p) const { objStoreWatcher_Destroy(p); }
 };
@@ -156,6 +159,7 @@ using NatsOptsPtr = std::unique_ptr<natsOptions, NatsOptsDeleter>;
 using ObjStorePutPtr = std::unique_ptr<objStorePut, ObjStorePutDeleter>;
 using ObjStoreGetPtr = std::unique_ptr<objStoreGet, ObjStoreGetDeleter>;
 using ObjStoreInfoPtr = std::unique_ptr<objStoreInfo, ObjStoreInfoDeleter>;
+using ObjStoreStatusPtr = std::unique_ptr<objStoreStatus, ObjStoreStatusDeleter>;
 using ObjStoreWatcherPtr = std::unique_ptr<objStoreWatcher, ObjStoreWatcherDeleter>;
 
 JsClusterInfo fromC(const jsClusterInfo& cluster);
@@ -190,6 +194,8 @@ NatsMetadata fromC(const natsMetadata& meta);
 ObjStoreInfo fromC(const objStoreInfo& info);
 ObjStoreInfo fromC(const ObjStoreInfoPtr& info);
 ObjStoreMeta fromC(const objStoreMeta& meta);
+ObjStoreStatus fromC(const objStoreStatus& status);
+ObjStoreStatus fromC(const ObjStoreStatusPtr& status);
 
 // Probe functor used by convertAndHandleAll to deduce CType without a runtime call.
 // A lambda would be simpler ([](auto& c) { return &c; }) but lambdas in unevaluated
