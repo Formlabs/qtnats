@@ -456,6 +456,19 @@ void JetStreamTestCase::readWriteObject() {
             // Cleanup the temporary file
             tempFile.remove();
         }
+        constexpr auto asPaced = "as_paced";
+        QByteArray pacedPayload(1024 * 1024, Qt::Uninitialized);
+        for (qsizetype i = 0; i < pacedPayload.size(); ++i) {
+            pacedPayload[i] = static_cast<char>((i * 31) & 0xff);
+        }
+        {
+            // One chunk in flight at a time: every publish waits for the previous ack.
+            JetStream* pacedJs = client->jetStream({.publishAsync = {.maxPending = 1, .stallWait = NatsTimeout{5000}}});
+            const ObjectStore* pacedStore = pacedJs->getObjectStore(bucket);
+            const auto storeInfo = pacedStore->putBytes(asPaced, pacedPayload);
+            QCOMPARE(storeInfo.size, static_cast<uint64_t>(pacedPayload.size()));
+            QCOMPARE(storeInfo.chunks, static_cast<uint32_t>(pacedPayload.size() / (128 * 1024)));
+        }
 
         // Validate that the object can be retrieved and matches the original content, using both the API and CLI
         natsCli.setProcessChannelMode(QProcess::ForwardedChannels);
@@ -483,6 +496,9 @@ void JetStreamTestCase::readWriteObject() {
             QVERIFY2(natsCli.exitCode() == 0, "nats CLI failed (see output above)");
         }
         {
+            QVERIFY(objectStore->getBytes(asPaced, {}) == pacedPayload);
+        }
+        {
             objectStore->getFile(fileName, asFile, {});
             QFile tempFile{asFile};
             QVERIFY(tempFile.open(QIODevice::ReadOnly));
@@ -502,10 +518,11 @@ void JetStreamTestCase::readWriteObject() {
             for (const auto& info : infos) {
                 names << info.meta.name;
             }
-            QCOMPARE(infos.size(), 3);
+            QCOMPARE(infos.size(), 4);
             QVERIFY(names.contains(asString));
             QVERIFY(names.contains(asBytes));
             QVERIFY(names.contains(fileName));
+            QVERIFY(names.contains(asPaced));
         }
 
         // Delete an object and verify it no longer resolves, but is reported as deleted when explicitly requested.
@@ -524,7 +541,7 @@ void JetStreamTestCase::readWriteObject() {
             QVERIFY(storeInfo.deleted);
 
             // A default list() excludes the deleted object.
-            QCOMPARE(objectStore->list().size(), 2);
+            QCOMPARE(objectStore->list().size(), 3);
         }
 
         // Cleanup
