@@ -506,7 +506,10 @@ void JetStreamTestCase::readWriteObject() {
             tempFile.close();
             QCOMPARE(fileContent, QString{testString});
 
-            natsCli.start("nats", QStringList() << "object" << "get" << bucket << asFile.c_str() << "--force");
+            natsCli.start(
+                "nats",
+                QStringList() << "object" << "get" << bucket << QString::fromStdString(asFile.string()) << "--force"
+            );
             QVERIFY2(natsCli.waitForFinished(), qPrintable(natsCli.errorString()));
             QVERIFY2(natsCli.exitCode() == 0, "nats CLI failed (see output above)");
         }
