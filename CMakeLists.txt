@@ -13,12 +13,9 @@ find_package(cnats CONFIG QUIET)
 if(NOT cnats_FOUND)
     message(STATUS "cnats not found via find_package, fetching via FetchContent...")
     include(FetchContent)
-    # TODO: point back at an upstream release once https://github.com/nats-io/nats.c/pull/1022
-    # (ObjectStore puts honor the context's PublishAsync flow control) ships. Until then this is
-    # v3.12.0 plus that fix, served from a fork.
     FetchContent_Declare(cnats
-        URL https://github.com/zsombor-szalay/nats.c/archive/951144f267e324a09a0a26bfaf7e654df79dc730.tar.gz
-        URL_HASH SHA256=f23c8880926aeae44e8111bc1df6959d1c1a32e7d1ab854b65c5e85146235e04
+        URL https://github.com/nats-io/nats.c/archive/refs/tags/v3.14.0.tar.gz
+        URL_HASH SHA256=1f8b450bc295d0c94be201e34713ca0b515aae2c0d1b279273c3e6e0e72fe005
     )
     set(NATS_BUILD_WITH_TLS ON CACHE BOOL "" FORCE)
     set(NATS_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
