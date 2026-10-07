@@ -18,6 +18,7 @@
 
 #include <QFutureInterface>
 #include <QThread>
+#include <QThreadPool>
 
 #include "qtnats/qtnats.h"
 #include "qtnats/qtnats_p.h"
@@ -105,7 +106,12 @@ static void disconnectedHandler(natsConnection* /*nc*/, void* closure) {
     Q_EMIT c->statusChanged(ConnectionStatus::Disconnected);
 }
 
-Client::Client(QObject* parent) : QObject(parent), semaphore(1), m_registry(std::make_shared<SubscriptionRegistry>()) {
+Client::Client(QObject* parent)
+    : QObject(parent)
+    , semaphore(1)
+    , m_registry(std::make_shared<SubscriptionRegistry>())
+    , m_subscribePool(new QThreadPool(this)) {
+    m_subscribePool->setMaxThreadCount(4);
     const int cpuCoresCount = QThread::idealThreadCount(); // this function may fail, thus the check
     if (cpuCoresCount >= 2) {
         nats_SetMessageDeliveryPoolSize(cpuCoresCount);

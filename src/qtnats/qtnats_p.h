@@ -49,6 +49,11 @@ struct SubscriptionRelay {
             f(*target);
     }
 
+    bool hasTarget() {
+        const std::lock_guard lock(mutex);
+        return target != nullptr;
+    }
+
     std::recursive_mutex mutex;
     Subscription* target;
     natsSubscription* sub = nullptr;
@@ -161,6 +166,9 @@ MessageHeaders readHeaderFields(const HeaderKeysFn& getKeys, const HeaderValuesF
 
 // We wrap raw pointers in unique_ptr with struct deleters to ensure proper cleanup
 // and allow construction without passing the deleter explicitly.
+struct JsCtxDeleter {
+    void operator()(jsCtx* p) const { jsCtx_Destroy(p); }
+};
 struct JsPubAckDeleter {
     void operator()(jsPubAck* p) const { jsPubAck_Destroy(p); }
 };
@@ -197,6 +205,7 @@ struct ObjStoreInfoDeleter {
 struct ObjStoreWatcherDeleter {
     void operator()(objStoreWatcher* p) const { objStoreWatcher_Destroy(p); }
 };
+using JsCtxPtr = std::unique_ptr<jsCtx, JsCtxDeleter>;
 using JsConsumerInfoPtr = std::unique_ptr<jsConsumerInfo, JsConsumerInfoDeleter>;
 using JsConsumerPauseResponsePtr = std::unique_ptr<jsConsumerPauseResponse, JsConsumerPauseResponseDeleter>;
 using JsPubAckPtr = std::unique_ptr<jsPubAck, JsPubAckDeleter>;

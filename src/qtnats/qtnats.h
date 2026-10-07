@@ -38,6 +38,8 @@
 
 #include <filesystem>
 
+class QThreadPool;
+
 namespace QtNats {
 QTNATS_EXPORT Q_NAMESPACE // we need the "export" directive due to https://bugreports.qt.io/browse/QTBUG-68014
 
@@ -645,6 +647,8 @@ private:
     // Shared: child Subscriptions outlive the Client's members.
     std::shared_ptr<SubscriptionRegistry> m_registry;
 
+    QThreadPool* m_subscribePool;
+
     static void closedConnectionHandler(natsConnection* nc, void* closure);
     static void errorHandler(natsConnection* nc, natsSubscription* subscription, natsStatus err, void* closure);
 
@@ -669,6 +673,12 @@ Q_SIGNALS:
 
     // Asynchronous cnats errors for this subscription, such as a slow consumer. Client::errorOccurred also fires.
     void errorOccurred(natsStatus error, const QString& text);
+
+    // Emitted only for JetStream::subscribeAsync, possibly after the first message.
+    void ready();
+
+    // Emitted only for JetStream::subscribeAsync. No messages follow.
+    void subscribeFailed(natsStatus error, jsErrCode jsErr, const QString& text);
 
 private:
     explicit Subscription(std::shared_ptr<SubscriptionRegistry> registry);
@@ -721,6 +731,24 @@ public:
         const QString& subject,
         const QString& stream,
         const QString& consumer,
+        const std::optional<JsOptions>& opts = std::nullopt
+    );
+
+    /// Push-subscribes with full options, e.g. `subOpts.ordered = true` for an ordered consumer. Without a stream,
+    /// the subject selects one. Blocks, and throws JetStreamException on failure. Messages that arrive before you
+    /// connect to Subscription::received are lost, including those a new consumer replays at once.
+    Subscription* subscribe(
+        const QString& subject,
+        const JsSubOptions& subOpts,
+        const std::optional<JsOptions>& opts = std::nullopt
+    );
+
+    /// Like subscribe(), but returns at once and reports the outcome through Subscription::ready or
+    /// Subscription::subscribeFailed. Slots connected right after the call receive every message. The Subscription
+    /// may be deleted at any time.
+    Subscription* subscribeAsync(
+        const QString& subject,
+        const JsSubOptions& subOpts,
         const std::optional<JsOptions>& opts = std::nullopt
     );
 
@@ -800,6 +828,7 @@ private:
 
     jsCtx* m_jsCtx = nullptr;
     Client* m_client;
+    JsOptions m_options;
 
     JsPublishAck doPublish(const Message& msg, jsPubOptions* opts);
 
