@@ -24,13 +24,6 @@
 
 using namespace QtNats;
 
-static QString getNatsErrorText(natsStatus status) {
-    if (status == NATS_OK)
-        return QString();
-
-    return QString::fromUtf8(natsStatus_GetText(status));
-}
-
 // need to pass it through queued signal-slot connections
 static const int messageTypeId = qRegisterMetaType<Message>();
 
@@ -80,9 +73,19 @@ static void asyncRequestCallback(natsConnection* /*nc*/, natsSubscription* natsS
     natsSubscription_Destroy(natsSub);
 }
 
-static void errorHandler(natsConnection* /*nc*/, natsSubscription* /*subscription*/, natsStatus err, void* closure) {
+void Client::errorHandler(natsConnection* /*nc*/, natsSubscription* subscription, natsStatus err, void* closure) {
     auto* const c = reinterpret_cast<Client*>(closure);
-    Q_EMIT c->errorOccurred(err, getNatsErrorText(err));
+    const QString text = lastErrorText(err);
+    Q_EMIT c->errorOccurred(err, text);
+
+    if (!subscription)
+        return;
+    // cnats keeps `subscription` alive during this callback, so no other subscription can reuse its address.
+    SubscriptionRelay* const relay = c->m_registry->retain(subscription);
+    if (!relay)
+        return;
+    relay->withTarget([&](Subscription& sub) { Q_EMIT sub.errorOccurred(err, text); });
+    relay->release();
 }
 
 void Client::closedConnectionHandler(natsConnection* /*nc*/, void* closure) {
@@ -102,7 +105,7 @@ static void disconnectedHandler(natsConnection* /*nc*/, void* closure) {
     Q_EMIT c->statusChanged(ConnectionStatus::Disconnected);
 }
 
-Client::Client(QObject* parent) : QObject(parent), semaphore(1) {
+Client::Client(QObject* parent) : QObject(parent), semaphore(1), m_registry(std::make_shared<SubscriptionRegistry>()) {
     const int cpuCoresCount = QThread::idealThreadCount(); // this function may fail, thus the check
     if (cpuCoresCount >= 2) {
         nats_SetMessageDeliveryPoolSize(cpuCoresCount);
@@ -220,17 +223,28 @@ QFuture<Message> Client::asyncRequest(const Message& msg, NatsTimeout timeout) {
 Subscription* Client::subscribe(const QString& subject) {
     // avoid a memory leak if checkError throws
     // can't use make_unique because Subscription's constructor is private
-    auto sub = std::unique_ptr<Subscription>(new Subscription(nullptr));
-    checkError(natsConnection_Subscribe(&sub->m_sub, m_conn, subject.toUtf8().constData(), &subscriptionCallback, sub.get()));
+    auto sub = std::unique_ptr<Subscription>(new Subscription(m_registry));
+    natsSubscription* natsSub = nullptr;
+    checkError(
+        natsConnection_Subscribe(&natsSub, m_conn, subject.toUtf8().constData(), &subscriptionCallback, sub->m_relay)
+    );
+    (void)attachRelay(sub->m_relay, natsSub);
     sub->setParent(this);
     return sub.release();
 }
 
 Subscription* Client::subscribe(const QString& subject, const QString& queueGroup) {
-    auto sub = std::unique_ptr<Subscription>(new Subscription(nullptr));
+    auto sub = std::unique_ptr<Subscription>(new Subscription(m_registry));
+    natsSubscription* natsSub = nullptr;
     checkError(natsConnection_QueueSubscribe(
-        &sub->m_sub, m_conn, subject.toUtf8().constData(), queueGroup.toUtf8().constData(), &subscriptionCallback, sub.get()
+        &natsSub,
+        m_conn,
+        subject.toUtf8().constData(),
+        queueGroup.toUtf8().constData(),
+        &subscriptionCallback,
+        sub->m_relay
     ));
+    (void)attachRelay(sub->m_relay, natsSub);
     sub->setParent(this);
     return sub.release();
 }
@@ -266,6 +280,22 @@ QByteArray Client::newInbox() {
     return result;
 }
 
-Subscription::~Subscription() noexcept { natsSubscription_Destroy(m_sub); }
+Subscription::Subscription(std::shared_ptr<SubscriptionRegistry> registry)
+    : QObject(nullptr)
+    , m_relay(new SubscriptionRelay(this, std::move(registry))) {}
+
+Subscription::~Subscription() noexcept {
+    natsSubscription* sub = nullptr;
+    {
+        const std::lock_guard lock(m_relay->mutex);
+        m_relay->target = nullptr;
+        sub = std::exchange(m_relay->sub, nullptr);
+    }
+    if (sub) {
+        m_relay->registry->remove(sub);
+        natsSubscription_Destroy(sub);
+    }
+    m_relay->release();
+}
 
 #pragma endregion

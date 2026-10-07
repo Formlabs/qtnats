@@ -39,14 +39,23 @@ void statusChanged(ConnectionStatus status);
 ```
 
 ## Subscription Class
-Represents a NATS subscription. Do not create the object yourself - use the Client's factory function `subscribe`.
+Represents a NATS subscription. Do not create the object yourself - use the factory functions `Client::subscribe`
+or `JetStream::subscribe`. Deleting it unsubscribes; it is safe while messages are still
+being delivered.
 
 Inherits: `QObject`
 
 ### Signals
 ```cpp
 void received(const Message& message);
+void errorOccurred(natsStatus error, const QString& text);
 ```
+`received` is emitted on a cnats delivery thread, so use the default (auto) connection type to handle it on the
+receiver's thread. A slot connected with `Qt::DirectConnection` delays the Subscription's destruction until it returns;
+`Qt::BlockingQueuedConnection` can deadlock.
+
+`errorOccurred` carries asynchronous errors cnats reports for this subscription, such as a slow consumer or a failed
+attempt to recreate an ordered consumer (cnats keeps retrying). `Client::errorOccurred` is emitted for them too.
 ## Options Struct
 A simple autocompletion-friendly wrapper over [cnats](http://nats-io.github.io/nats.c/group__opts_group.html) connection options.
 ## Message Struct

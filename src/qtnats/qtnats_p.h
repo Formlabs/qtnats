@@ -16,16 +16,68 @@
 
 #pragma once
 
+#include <atomic>
 #include <functional>
 #include <list>
+#include <mutex>
 #include <type_traits>
+#include <unordered_map>
 
 #include "qtnats.h"
 
 namespace QtNats {
 
+// The closure cnats calls back with for a Subscription. The Subscription and, once attached, cnats each hold a
+// reference; cnats releases its own in onComplete, after the last callback. The Subscription detaches by clearing
+// `target`. Callbacks emit only while holding `mutex`, which is recursive so a slot may delete the Subscription.
+struct SubscriptionRelay {
+    SubscriptionRelay(Subscription* target, std::shared_ptr<SubscriptionRegistry> registry)
+        : target(target)
+        , registry(std::move(registry)) {}
+
+    void retain() { refs.fetch_add(1, std::memory_order_relaxed); }
+    void release() {
+        if (refs.fetch_sub(1, std::memory_order_acq_rel) == 1)
+            delete this;
+    }
+
+    // Calls f(*target) under the lock if the Subscription still exists.
+    template <typename F>
+    void withTarget(F&& f) {
+        const std::lock_guard lock(mutex);
+        if (target)
+            f(*target);
+    }
+
+    std::recursive_mutex mutex;
+    Subscription* target;
+    natsSubscription* sub = nullptr;
+    std::shared_ptr<SubscriptionRegistry> registry;
+    std::atomic<int> refs{1};
+
+private:
+    ~SubscriptionRelay() = default;
+};
+
+// Never lock a relay while holding the registry mutex: slots run under their relay's lock and may subscribe or
+// unsubscribe.
+struct SubscriptionRegistry {
+    void add(natsSubscription* sub, SubscriptionRelay* relay);
+    void remove(natsSubscription* sub);
+    // Returns the relay registered for `sub`, retained, or nullptr. The caller releases it.
+    SubscriptionRelay* retain(natsSubscription* sub);
+
+private:
+    std::mutex mutex;
+    std::unordered_map<natsSubscription*, SubscriptionRelay*> relays;
+};
+
 void checkError(natsStatus s);
 void subscriptionCallback(natsConnection* nc, natsSubscription* sub, natsMsg* msg, void* closure);
+// Hands cnats its reference and registers `sub` for error routing. Returns false if the Subscription is gone; the
+// caller must then destroy `sub`.
+[[nodiscard]] bool attachRelay(SubscriptionRelay* relay, natsSubscription* sub);
+QString lastErrorText(natsStatus s);
 
 // Conversions between nats.c types and QtNats types.
 // nats.c -> QtNats is generally straightforward: Any pointers get dereferenced, and copied into the QtNats types.

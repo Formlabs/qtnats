@@ -302,32 +302,40 @@ void JetStream::waitForPublishCompleted(const std::optional<JsPublishOptions>& o
     });
 }
 
+static natsStatus jsPushSubscribe(
+    natsSubscription** natsSub,
+    jsCtx* ctx,
+    const QString& subject,
+    const JsSubOptions& subOpts,
+    const std::optional<JsOptions>& opts,
+    SubscriptionRelay* relay,
+    jsErrCode* jsErr
+) {
+    // manualAck=true: avoid _autoAckCB in cnats internals, because it takes over ownership of delivered messages
+    return convertAndHandle(subOpts, /*manualAck=*/true, [&](jsSubOptions& cSubOpts) {
+        return convertOptionalAndHandle(opts, [&](jsOptions* jsOpts) {
+            return js_Subscribe(
+                natsSub, ctx, subject.toUtf8().constData(), &subscriptionCallback, relay, jsOpts, &cSubOpts, jsErr
+            );
+        });
+    });
+}
+
 Subscription* JetStream::subscribe(
     const QString& subject,
     const QString& stream,
     const QString& consumer,
     const std::optional<JsOptions>& opts
 ) {
-    // manualAck=true: avoid _autoAckCB in cnats internals, because it takes over ownership of delivered messages
     // If something throws, it will be cleaned up by the unique_ptr's destructor instead of being leaked.
     // We can't use make_unique because we're relying on the friend declaration.
-    auto sub = std::unique_ptr<Subscription>(new Subscription(nullptr));
+    auto sub = std::unique_ptr<Subscription>(new Subscription(m_client->m_registry));
+    natsSubscription* natsSub = nullptr;
     jsErrCode jsErr = {};
-    convertAndHandle(JsSubOptions{stream, consumer}, /*manualAck=*/true, [&](jsSubOptions& subOpts) {
-        convertOptionalAndHandle(opts, [&](jsOptions* jsOpts) {
-            const natsStatus s = js_Subscribe(
-                &sub->m_sub,
-                m_jsCtx,
-                subject.toUtf8().constData(),
-                &subscriptionCallback,
-                sub.get(),
-                jsOpts,
-                &subOpts,
-                &jsErr
-            );
-            checkJsError(s, jsErr);
-        });
-    });
+    checkJsError(
+        jsPushSubscribe(&natsSub, m_jsCtx, subject, JsSubOptions{stream, consumer}, opts, sub->m_relay, &jsErr), jsErr
+    );
+    (void)attachRelay(sub->m_relay, natsSub);
     sub->setParent(this);
     return sub.release();
 }
