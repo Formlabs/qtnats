@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+#include <QThreadPool>
+
 #include "qtnats/qtnats.h"
 #include "qtnats/qtnats_p.h"
 
@@ -36,6 +38,7 @@ JetStream* Client::jetStream(const JsOptions& options) {
     // If something throws, it will be cleaned up by the unique_ptr's destructor instead of being leaked.
     // We can't use make_unique because we're relying on the friend declaration.
     auto js = std::unique_ptr<JetStream>(new JetStream(this));
+    js->m_options = options;
     convertAndHandle(options, [&](jsOptions& jsOpts) {
         jsOpts.PublishAsync.ErrHandler = &jsPubErrHandler;
         jsOpts.PublishAsync.ErrHandlerClosure = js.get();
@@ -308,28 +311,116 @@ Subscription* JetStream::subscribe(
     const QString& consumer,
     const std::optional<JsOptions>& opts
 ) {
+    return subscribe(subject, JsSubOptions{stream, consumer}, opts);
+}
+
+static natsStatus jsPushSubscribe(
+    natsSubscription** natsSub,
+    jsCtx* ctx,
+    const QString& subject,
+    const JsSubOptions& subOpts,
+    const std::optional<JsOptions>& opts,
+    SubscriptionRelay* relay,
+    jsErrCode* jsErr
+) {
     // manualAck=true: avoid _autoAckCB in cnats internals, because it takes over ownership of delivered messages
-    // If something throws, it will be cleaned up by the unique_ptr's destructor instead of being leaked.
-    // We can't use make_unique because we're relying on the friend declaration.
-    auto sub = std::unique_ptr<Subscription>(new Subscription(nullptr));
-    jsErrCode jsErr = {};
-    convertAndHandle(JsSubOptions{stream, consumer}, /*manualAck=*/true, [&](jsSubOptions& subOpts) {
-        convertOptionalAndHandle(opts, [&](jsOptions* jsOpts) {
-            const natsStatus s = js_Subscribe(
-                &sub->m_sub,
-                m_jsCtx,
-                subject.toUtf8().constData(),
-                &subscriptionCallback,
-                sub.get(),
-                jsOpts,
-                &subOpts,
-                &jsErr
+    return convertAndHandle(subOpts, /*manualAck=*/true, [&](jsSubOptions& cSubOpts) {
+        return convertOptionalAndHandle(opts, [&](jsOptions* jsOpts) {
+            return js_Subscribe(
+                natsSub, ctx, subject.toUtf8().constData(), &subscriptionCallback, relay, jsOpts, &cSubOpts, jsErr
             );
-            checkJsError(s, jsErr);
         });
     });
+}
+
+Subscription* JetStream::subscribe(
+    const QString& subject,
+    const JsSubOptions& subOpts,
+    const std::optional<JsOptions>& opts
+) {
+    // If something throws, it will be cleaned up by the unique_ptr's destructor instead of being leaked.
+    // We can't use make_unique because we're relying on the friend declaration.
+    auto sub = std::unique_ptr<Subscription>(new Subscription(m_client->m_registry));
+    natsSubscription* natsSub = nullptr;
+    jsErrCode jsErr = {};
+    checkJsError(jsPushSubscribe(&natsSub, m_jsCtx, subject, subOpts, opts, sub->m_relay, &jsErr), jsErr);
+    (void)attachRelay(sub->m_relay, natsSub);
     sub->setParent(this);
     return sub.release();
+}
+
+namespace {
+struct AsyncSubscribeJob {
+    AsyncSubscribeJob(SubscriptionRelay* relay, QString subject, JsSubOptions subOpts, std::optional<JsOptions> opts)
+        : relay(relay)
+        , subject(std::move(subject))
+        , subOpts(std::move(subOpts))
+        , opts(std::move(opts)) {
+        relay->retain();
+    }
+
+    ~AsyncSubscribeJob() { relay->release(); }
+
+    AsyncSubscribeJob(const AsyncSubscribeJob&) = delete;
+    AsyncSubscribeJob& operator=(const AsyncSubscribeJob&) = delete;
+
+    void run() {
+        if (!relay->hasTarget())
+            return;
+        natsStatus s = ctxStatus;
+        QString text = ctxError;
+        natsSubscription* natsSub = nullptr;
+        jsErrCode jsErr = {};
+        if (s == NATS_OK) {
+            s = jsPushSubscribe(&natsSub, ctx.get(), subject, subOpts, opts, relay, &jsErr);
+            if (s != NATS_OK)
+                text = lastErrorText(s);
+        }
+        if (s != NATS_OK) {
+            relay->withTarget([&](Subscription& sub) { Q_EMIT sub.subscribeFailed(s, jsErr, text); });
+            return;
+        }
+        if (!attachRelay(relay, natsSub)) {
+            natsSubscription_Destroy(natsSub);
+            return;
+        }
+        relay->withTarget([](Subscription& sub) { Q_EMIT sub.ready(); });
+    }
+
+    SubscriptionRelay* const relay;
+    const QString subject;
+    const JsSubOptions subOpts;
+    const std::optional<JsOptions> opts;
+    JsCtxPtr ctx;
+    natsStatus ctxStatus = NATS_OK;
+    QString ctxError;
+};
+} // namespace
+
+Subscription* JetStream::subscribeAsync(
+    const QString& subject,
+    const JsSubOptions& subOpts,
+    const std::optional<JsOptions>& opts
+) {
+    auto* const sub = new Subscription(m_client->m_registry);
+    sub->setParent(this);
+    auto job = std::make_shared<AsyncSubscribeJob>(sub->m_relay, subject, subOpts, opts);
+
+    // A private context keeps the connection alive for the job, however long this JetStream lives.
+    job->ctxStatus = convertAndHandle(m_options, [&](jsOptions& jsOpts) {
+        jsCtx* ctx = nullptr;
+        const natsStatus s = natsConnection_JetStream(&ctx, m_client->getNatsConnection(), &jsOpts);
+        job->ctx.reset(ctx);
+        return s;
+    });
+    if (job->ctxStatus != NATS_OK)
+        job->ctxError = lastErrorText(job->ctxStatus);
+
+    // Start from the event loop, so slots connected right after this call receive every message.
+    QMetaObject::invokeMethod(
+        this, [pool = m_client->m_subscribePool, job] { pool->start([job] { job->run(); }); }, Qt::QueuedConnection
+    );
+    return sub;
 }
 
 PullSubscription* JetStream::pullSubscribe(

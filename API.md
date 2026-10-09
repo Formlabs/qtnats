@@ -39,14 +39,27 @@ void statusChanged(ConnectionStatus status);
 ```
 
 ## Subscription Class
-Represents a NATS subscription. Do not create the object yourself - use the Client's factory function `subscribe`.
+Represents a NATS subscription. Do not create the object yourself - use the factory functions `Client::subscribe`,
+`JetStream::subscribe` or `JetStream::subscribeAsync`. Deleting it unsubscribes; it is safe while messages are still
+being delivered.
 
 Inherits: `QObject`
 
 ### Signals
 ```cpp
 void received(const Message& message);
+void errorOccurred(natsStatus error, const QString& text);
+void ready();
+void subscribeFailed(natsStatus error, jsErrCode jsErr, const QString& text);
 ```
+`received` is emitted on a cnats delivery thread, so use the default (auto) connection type to handle it on the
+receiver's thread. A slot connected with `Qt::DirectConnection` delays the Subscription's destruction until it returns;
+`Qt::BlockingQueuedConnection` can deadlock.
+
+`errorOccurred` carries asynchronous errors cnats reports for this subscription, such as a slow consumer or a failed
+attempt to recreate an ordered consumer (cnats keeps retrying). `Client::errorOccurred` is emitted for them too.
+
+`ready` and `subscribeFailed` are emitted only by subscriptions created with `JetStream::subscribeAsync`.
 ## Options Struct
 A simple autocompletion-friendly wrapper over [cnats](http://nats-io.github.io/nats.c/group__opts_group.html) connection options.
 ## Message Struct
@@ -80,8 +93,20 @@ void asyncPublish(const Message& msg, const JsPublishOptions& opts);
 void asyncPublish(const Message& msg, int64_t timeout = -1);
 void waitForPublishCompleted(int64_t timeout = -1);
 Subscription* subscribe(const QString& subject, const QString& stream, const QString& push_consumer);
+Subscription* subscribe(const QString& subject, const JsSubOptions& subOpts, const std::optional<JsOptions>& opts = std::nullopt);
+Subscription* subscribeAsync(const QString& subject, const JsSubOptions& subOpts, const std::optional<JsOptions>& opts = std::nullopt);
 PullSubscription* pullSubscribe(const QString& subject, const QString& stream, const QString& pull_consumer);
 ```
+The `JsSubOptions` overloads give full control over the push subscription, e.g. an ordered, ephemeral consumer with
+`subOpts.ordered = true` and a deliver policy in `subOpts.config`. Leave `stream` unset to look it up from the subject.
+
+`subscribe` blocks for the server round trips and throws `JetStreamException` on failure. Messages delivered before
+you connect to `received` are lost, including the retained messages a new consumer replays at once.
+
+`subscribeAsync` returns immediately and sets the subscription up on a thread pool once control returns to the event
+loop, so slots connected right after the call see every message. It reports the outcome with `Subscription::ready`
+or `Subscription::subscribeFailed` instead of throwing; messages may arrive before `ready`. The Subscription may be
+deleted at any time.
 ### Signals
 ```cpp
 void errorOccurred(natsStatus error, jsErrCode jsErr, const QString& text, const Message& msg);

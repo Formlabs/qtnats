@@ -26,9 +26,53 @@ void checkError(natsStatus s) {
 }
 
 void subscriptionCallback(natsConnection* /*nc*/, natsSubscription* /*sub*/, natsMsg* msg, void* closure) {
-    auto* const sub = reinterpret_cast<Subscription*>(closure);
     const Message m = fromC(NatsMsgPtr(msg));
-    Q_EMIT sub->received(m);
+    static_cast<SubscriptionRelay*>(closure)->withTarget([&](Subscription& sub) { Q_EMIT sub.received(m); });
+}
+
+static void relayCompleteCallback(void* closure) { static_cast<SubscriptionRelay*>(closure)->release(); }
+
+bool attachRelay(SubscriptionRelay* relay, natsSubscription* sub) {
+    // cnats releases this reference in onComplete. If the subscription is already closed, onComplete never runs and
+    // the relay leaks, because a message callback may still hold it.
+    relay->retain();
+    (void)natsSubscription_SetOnCompleteCB(sub, &relayCompleteCallback, relay);
+
+    // Under the relay lock, so ~Subscription either unregisters `sub` or we see it gone.
+    const std::lock_guard lock(relay->mutex);
+    if (!relay->target)
+        return false;
+    relay->sub = sub;
+    relay->registry->add(sub, relay);
+    return true;
+}
+
+void SubscriptionRegistry::add(natsSubscription* sub, SubscriptionRelay* relay) {
+    const std::lock_guard lock(mutex);
+    relays[sub] = relay;
+}
+
+void SubscriptionRegistry::remove(natsSubscription* sub) {
+    const std::lock_guard lock(mutex);
+    relays.erase(sub);
+}
+
+SubscriptionRelay* SubscriptionRegistry::retain(natsSubscription* sub) {
+    const std::lock_guard lock(mutex);
+    const auto it = relays.find(sub);
+    if (it == relays.end())
+        return nullptr;
+    it->second->retain();
+    return it->second;
+}
+
+QString lastErrorText(natsStatus s) {
+    // The text may be stale; trust it only if its status matches.
+    natsStatus lastStatus = NATS_OK;
+    const char* text = nats_GetLastError(&lastStatus);
+    if (text && *text && lastStatus == s)
+        return QString::fromUtf8(text);
+    return QString::fromUtf8(natsStatus_GetText(s));
 }
 
 MessageHeaders readHeaderFields(const HeaderKeysFn& getKeys, const HeaderValuesFn& getValues) {

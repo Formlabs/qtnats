@@ -19,9 +19,10 @@
 #include <iostream>
 
 #include <QCoreApplication>
-#include <QMetaEnum>
 #include <QDir>
+#include <QMetaEnum>
 #include <QProcess>
+#include <QTimer>
 
 #include <QtTest>
 
@@ -54,6 +55,13 @@ private Q_SLOTS:
     void publish();
     void pullSubscribe();
     void pushSubscribe();
+    void orderedSubscribe_data();
+    void orderedSubscribe();
+    void orderedSubscribeBlocking();
+    void asyncSubscribeNoStream();
+    void asyncSubscribeAfterClose();
+    void asyncSubscribeDestroyedBeforeReady();
+    void subscriptionStress();
     void readWriteObject();
 };
 
@@ -408,6 +416,130 @@ void JetStreamTestCase::pushSubscribe() {
     }
 }
 
+static JsSubOptions orderedOptions(JsDeliverPolicy deliverPolicy) {
+    JsSubOptions subOpts;
+    subOpts.ordered = true;
+    subOpts.config.deliverPolicy = deliverPolicy;
+    return subOpts;
+}
+
+void JetStreamTestCase::orderedSubscribe_data() {
+    QTest::addColumn<JsDeliverPolicy>("deliverPolicy");
+    QTest::addColumn<QList<QByteArray>>("expected");
+
+    QTest::newRow("Last") << JsDeliverPolicy::Last << QList<QByteArray>{"2", "3"};
+    QTest::newRow("All") << JsDeliverPolicy::All << QList<QByteArray>{"0", "1", "2", "3"};
+}
+
+void JetStreamTestCase::orderedSubscribe() {
+    QFETCH(JsDeliverPolicy, deliverPolicy);
+    QFETCH(QList<QByteArray>, expected);
+    try {
+        for (int i = 0; i < 3; i++)
+            js->publish(Message("test.ordered", QByteArray::number(i)), {});
+
+        const std::unique_ptr<Subscription> sub(js->subscribeAsync("test.ordered", orderedOptions(deliverPolicy)));
+        bool ready = false;
+        QList<QByteArray> received;
+        connect(sub.get(), &Subscription::ready, [&ready] { ready = true; });
+        connect(sub.get(), &Subscription::received, [&received](const Message& m) { received += m.data; });
+        connect(sub.get(), &Subscription::subscribeFailed, [](natsStatus, jsErrCode, const QString& text) {
+            QFAIL(qPrintable(text));
+        });
+
+        QTRY_VERIFY(ready);
+        QTRY_COMPARE(received.size(), expected.size() - 1);
+        js->publish(Message("test.ordered", "3"), {});
+        QTRY_COMPARE(received, expected);
+    } catch (const QException& e) {
+        QFAIL(e.what());
+    }
+}
+
+void JetStreamTestCase::orderedSubscribeBlocking() {
+    try {
+        js->publish(Message("test.blocking", "old"), {});
+
+        const std::unique_ptr<Subscription> sub(js->subscribe("test.blocking", orderedOptions(JsDeliverPolicy::New)));
+        QList<QByteArray> received;
+        connect(sub.get(), &Subscription::received, [&received](const Message& m) { received += m.data; });
+
+        js->publish(Message("test.blocking", "new"), {});
+        QTRY_COMPARE(received, QList<QByteArray>{"new"});
+    } catch (const QException& e) {
+        QFAIL(e.what());
+    }
+}
+
+void JetStreamTestCase::asyncSubscribeNoStream() {
+    std::unique_ptr<Subscription> sub;
+    try {
+        sub.reset(js->subscribeAsync("nostream.x", orderedOptions(JsDeliverPolicy::Last)));
+    } catch (const QException& e) {
+        QFAIL(e.what());
+    }
+    bool ready = false;
+    QString failure;
+    connect(sub.get(), &Subscription::ready, [&ready] { ready = true; });
+    connect(sub.get(), &Subscription::subscribeFailed, [&failure](natsStatus, jsErrCode, const QString& text) {
+        failure = text;
+    });
+
+    QTRY_VERIFY(!failure.isEmpty());
+    std::cout << "subscribeFailed: " << qPrintable(failure) << std::endl;
+    QVERIFY(!ready);
+}
+
+void JetStreamTestCase::asyncSubscribeAfterClose() {
+    Client closed;
+    closed.connectToServer(QUrl("nats://localhost:4222"));
+    JetStream* closedJs = closed.jetStream();
+    closed.close();
+
+    std::unique_ptr<Subscription> sub;
+    try {
+        sub.reset(closedJs->subscribeAsync("test.closed", orderedOptions(JsDeliverPolicy::Last)));
+    } catch (const QException& e) {
+        QFAIL(e.what());
+    }
+    bool failed = false;
+    connect(sub.get(), &Subscription::subscribeFailed, [&failed](natsStatus, jsErrCode, const QString&) {
+        failed = true;
+    });
+    QTRY_VERIFY(failed);
+}
+
+void JetStreamTestCase::asyncSubscribeDestroyedBeforeReady() {
+    for (int i = 0; i < 20; i++)
+        delete js->subscribeAsync("test.destroyed", orderedOptions(JsDeliverPolicy::Last));
+    QTest::qWait(1000);
+}
+
+void JetStreamTestCase::subscriptionStress() {
+    QTimer publisher;
+    connect(&publisher, &QTimer::timeout, [this] { client->publish(Message("test.stress", "x")); });
+    publisher.start(1);
+
+    try {
+        for (int i = 0; i < 100; i++) {
+            const std::unique_ptr<Subscription> core(client->subscribe("test.stress"));
+            const std::unique_ptr<Subscription> ordered(
+                js->subscribe("test.stress", orderedOptions(JsDeliverPolicy::All))
+            );
+            const std::unique_ptr<Subscription> async(
+                js->subscribeAsync("test.stress", orderedOptions(JsDeliverPolicy::All))
+            );
+            for (Subscription* sub : {core.get(), ordered.get(), async.get()})
+                connect(sub, &Subscription::received, [](const Message&) {});
+            QTest::qWait(i % 5);
+        }
+    } catch (const QException& e) {
+        QFAIL(e.what());
+    }
+    publisher.stop();
+    QTest::qWait(500);
+}
+
 // Writes an object to a stream and reads it back, verifying that the content is preserved.
 void JetStreamTestCase::readWriteObject() {
     try {
@@ -506,7 +638,10 @@ void JetStreamTestCase::readWriteObject() {
             tempFile.close();
             QCOMPARE(fileContent, QString{testString});
 
-            natsCli.start("nats", QStringList() << "object" << "get" << bucket << asFile.c_str() << "--force");
+            natsCli.start(
+                "nats",
+                QStringList() << "object" << "get" << bucket << QString::fromStdString(asFile.string()) << "--force"
+            );
             QVERIFY2(natsCli.waitForFinished(), qPrintable(natsCli.errorString()));
             QVERIFY2(natsCli.exitCode() == 0, "nats CLI failed (see output above)");
         }
