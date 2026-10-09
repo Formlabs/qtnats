@@ -40,11 +40,17 @@ MessageHeaders Message::readHeaders(natsMsg* msg) {
     );
 }
 
+// Empty payloads stay non-null.
+static QByteArray readData(const natsMsg* msg) {
+    const int length = natsMsg_GetDataLength(msg);
+    return length > 0 ? QByteArray(natsMsg_GetData(msg), length) : QByteArray("", 0);
+}
+
 Message::Message(natsMsg* msg)
     : m_natsMsg{msg, &natsMsg_Destroy}
     , subject{QString::fromUtf8(natsMsg_GetSubject(msg))}
     , reply{QByteArray(natsMsg_GetReply(msg))}
-    , data{QByteArray(natsMsg_GetData(msg), natsMsg_GetDataLength(msg))}
+    , data{readData(msg)}
     , headers{readHeaders(msg)} {}
 
 #pragma endregion

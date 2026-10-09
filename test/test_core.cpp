@@ -45,6 +45,7 @@ private Q_SLOTS:
 
     void subscribe();
     void deleteFromDirectSlot();
+    void emptyPayload();
     void request();
     void asyncRequest();
 };
@@ -120,6 +121,24 @@ void CoreTestCase::subscribe() {
             QCOMPARE(m.subject, "test_subject");
             QCOMPARE(m.data, "hello");
         }
+    } catch (const QException& e) {
+        QFAIL(e.what());
+    }
+}
+
+void CoreTestCase::emptyPayload() {
+    try {
+        Client c;
+        c.connectToServer(QUrl("nats://localhost:4222"));
+        const std::unique_ptr<Subscription> sub(c.subscribe("test_empty"));
+        QList<Message> received;
+        connect(sub.get(), &Subscription::received, this, [&received](const Message& m) { received += m; });
+        c.ping(); // ensure the server received SUB
+
+        c.publish(Message("test_empty", QByteArray()));
+        QTRY_COMPARE(received.size(), 1);
+        QVERIFY(received[0].data.isEmpty());
+        QVERIFY(!received[0].data.isNull());
     } catch (const QException& e) {
         QFAIL(e.what());
     }
