@@ -73,6 +73,15 @@ Subscription* sub = js->subscribe("test.push", "MY_STREAM", "PUSH_CONSUMER");
 connect(sub, &Subscription::received, [](const Message& message) {
     // process the message
 });
+
+// ordered, ephemeral consumer that starts with the subject's last retained message, without blocking the caller.
+// The stream is looked up from the subject.
+JsSubOptions subOpts;
+subOpts.ordered = true;
+subOpts.config.deliverPolicy = JsDeliverPolicy::Last;
+Subscription* broadcast = js->subscribeAsync("printer.status", subOpts);
+connect(broadcast, &Subscription::received, [](const Message& message) { /* the last value, then each new one */ });
+connect(broadcast, &Subscription::subscribeFailed, [](natsStatus, jsErrCode, const QString& text) { /* e.g. no stream */ });
 ```
 # QML
 

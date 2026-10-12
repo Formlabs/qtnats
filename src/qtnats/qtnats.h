@@ -38,6 +38,8 @@
 
 #include <filesystem>
 
+class QThreadPool;
+
 namespace QtNats {
 QTNATS_EXPORT Q_NAMESPACE // we need the "export" directive due to https://bugreports.qt.io/browse/QTBUG-68014
 
@@ -576,6 +578,8 @@ class Subscription;
 class PullSubscription;
 class JetStream;
 class ObjectStore;
+struct SubscriptionRegistry;
+struct SubscriptionRelay;
 
 class QTNATS_EXPORT Client : public QObject {
     Q_OBJECT
@@ -640,7 +644,15 @@ private:
     // before asyncRequest callbacks fire.
     std::vector<std::shared_ptr<QFutureInterface<Message>>> m_pendingAsyncRequests;
 
+    // Shared: child Subscriptions outlive the Client's members.
+    std::shared_ptr<SubscriptionRegistry> m_registry;
+
+    QThreadPool* m_subscribePool;
+
     static void closedConnectionHandler(natsConnection* nc, void* closure);
+    static void errorHandler(natsConnection* nc, natsSubscription* subscription, natsStatus err, void* closure);
+
+    friend class JetStream;
 };
 
 class QTNATS_EXPORT Subscription : public QObject {
@@ -655,12 +667,23 @@ public:
     Subscription& operator=(Subscription&&) = delete;
 
 Q_SIGNALS:
+    // Emitted on a cnats thread. A Qt::DirectConnection slot delays destruction of this Subscription until it
+    // returns, and may delete it only if it has no parent. A Qt::BlockingQueuedConnection can deadlock.
     void received(Message message);
 
-private:
-    explicit Subscription(QObject* parent) : QObject(parent) {}
+    // Asynchronous cnats errors for this subscription, such as a slow consumer. Client::errorOccurred also fires.
+    void errorOccurred(natsStatus error, const QString& text);
 
-    natsSubscription* m_sub = nullptr;
+    // Emitted only for JetStream::subscribeAsync, possibly after the first message.
+    void ready();
+
+    // Emitted only for JetStream::subscribeAsync. No messages follow.
+    void subscribeFailed(natsStatus error, jsErrCode jsErr, const QString& text);
+
+private:
+    explicit Subscription(std::shared_ptr<SubscriptionRegistry> registry);
+
+    SubscriptionRelay* m_relay;
     friend class Client;
     friend class JetStream;
 };
@@ -708,6 +731,24 @@ public:
         const QString& subject,
         const QString& stream,
         const QString& consumer,
+        const std::optional<JsOptions>& opts = std::nullopt
+    );
+
+    /// Push-subscribes with full options, e.g. `subOpts.ordered = true` for an ordered consumer. Without a stream,
+    /// the subject selects one. Blocks, and throws JetStreamException on failure. Messages that arrive before you
+    /// connect to Subscription::received are lost, including those a new consumer replays at once.
+    Subscription* subscribe(
+        const QString& subject,
+        const JsSubOptions& subOpts,
+        const std::optional<JsOptions>& opts = std::nullopt
+    );
+
+    /// Like subscribe(), but returns at once and reports the outcome through Subscription::ready or
+    /// Subscription::subscribeFailed. Slots connected right after the call receive every message. The Subscription
+    /// may be deleted at any time.
+    Subscription* subscribeAsync(
+        const QString& subject,
+        const JsSubOptions& subOpts,
         const std::optional<JsOptions>& opts = std::nullopt
     );
 
@@ -783,9 +824,11 @@ Q_SIGNALS:
     void errorOccurred(natsStatus error, jsErrCode jsErr, const QString& text, Message msg);
 
 private:
-    explicit JetStream(QObject* parent) : QObject(parent) {}
+    explicit JetStream(Client* client) : QObject(client), m_client(client) {}
 
     jsCtx* m_jsCtx = nullptr;
+    Client* m_client;
+    JsOptions m_options;
 
     JsPublishAck doPublish(const Message& msg, jsPubOptions* opts);
 

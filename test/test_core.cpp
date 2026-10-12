@@ -16,6 +16,7 @@
 
 #include <qtnats/qtnats.h>
 
+#include <atomic>
 #include <iostream>
 
 #include <QCoreApplication>
@@ -43,6 +44,8 @@ private Q_SLOTS:
     void cleanupTestCase();
 
     void subscribe();
+    void deleteFromDirectSlot();
+    void emptyPayload();
     void request();
     void asyncRequest();
 };
@@ -59,6 +62,37 @@ void CoreTestCase::initTestCase() {
 void CoreTestCase::cleanupTestCase() {
     natsServer.close();
     natsServer.waitForFinished();
+}
+
+void CoreTestCase::deleteFromDirectSlot() {
+    try {
+        Client c;
+        c.connectToServer(QUrl("nats://localhost:4222"));
+        Subscription* sub = c.subscribe("test_delete");
+        // Qt forbids deleting an object with a parent from another thread.
+        sub->setParent(nullptr);
+        std::atomic<int> received{0};
+        connect(
+            sub,
+            &Subscription::received,
+            sub,
+            [sub, &received](const Message&) {
+                if (received.fetch_add(1) == 0)
+                    delete sub;
+            },
+            Qt::DirectConnection
+        );
+        c.ping(); // ensure the server received SUB
+
+        for (int i = 0; i < 10; i++)
+            c.publish(Message("test_delete", "x"));
+        c.ping();
+        QTRY_COMPARE(received.load(), 1);
+        QTest::qWait(50);
+        QCOMPARE(received.load(), 1);
+    } catch (const QException& e) {
+        QFAIL(e.what());
+    }
 }
 
 void CoreTestCase::subscribe() {
@@ -87,6 +121,24 @@ void CoreTestCase::subscribe() {
             QCOMPARE(m.subject, "test_subject");
             QCOMPARE(m.data, "hello");
         }
+    } catch (const QException& e) {
+        QFAIL(e.what());
+    }
+}
+
+void CoreTestCase::emptyPayload() {
+    try {
+        Client c;
+        c.connectToServer(QUrl("nats://localhost:4222"));
+        const std::unique_ptr<Subscription> sub(c.subscribe("test_empty"));
+        QList<Message> received;
+        connect(sub.get(), &Subscription::received, this, [&received](const Message& m) { received += m; });
+        c.ping(); // ensure the server received SUB
+
+        c.publish(Message("test_empty", QByteArray()));
+        QTRY_COMPARE(received.size(), 1);
+        QVERIFY(received[0].data.isEmpty());
+        QVERIFY(!received[0].data.isNull());
     } catch (const QException& e) {
         QFAIL(e.what());
     }
