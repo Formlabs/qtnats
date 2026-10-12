@@ -117,7 +117,6 @@ Client::Client(QObject* parent)
     , semaphore(1)
     , m_registry(std::make_shared<SubscriptionRegistry>())
     , m_subscribePool(new QThreadPool(this)) {
-    m_subscribePool->setMaxThreadCount(4);
     const int cpuCoresCount = QThread::idealThreadCount(); // this function may fail, thus the check
     if (cpuCoresCount >= 2) {
         nats_SetMessageDeliveryPoolSize(cpuCoresCount);
