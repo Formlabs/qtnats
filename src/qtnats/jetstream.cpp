@@ -232,6 +232,61 @@ void JetStream::deleteObjectStore(const QString& bucket) const {
     checkError(js_DeleteObjectStore(m_jsCtx, bucket.toUtf8().constData()));
 }
 
+KeyValue* JetStream::createOrUpdateKeyValue(const KvConfig& config) {
+    // If something throws, it will be cleaned up by the unique_ptr's destructor instead of being leaked.
+    // We can't use make_unique because we're relying on the friend declaration.
+    auto store = std::unique_ptr<KeyValue>(new KeyValue(this));
+    convertAndHandle(config, [&](kvConfig& cConfig) {
+        // Creating a bucket that exists with the same config just binds to it.
+        const natsStatus created = js_CreateKeyValue(&store->m_kv, m_jsCtx, &cConfig);
+        if (created == NATS_OK) {
+            return;
+        }
+
+        // nats.c has no update for buckets. Patch the backing stream instead: only the limits KvConfig sets change,
+        // the rest of the layout nats.c gave the stream is kept. A bucket that does not exist leaves the create
+        // failure to explain itself.
+        const QByteArray stream = "KV_" + config.bucket.toUtf8();
+        jsStreamInfo* current = nullptr;
+        jsErrCode jsErr = {};
+        if (js_GetStreamInfo(&current, m_jsCtx, stream.constData(), nullptr, &jsErr) != NATS_OK) {
+            throw Exception(created);
+        }
+        const JsStreamInfoPtr owned(current);
+        // A copy: nats.c frees the fetched config's strings with it, and the description points into our arena.
+        jsStreamConfig patched = *current->Config;
+        patched.Description = cConfig.Description;
+        patched.MaxMsgsPerSubject = cConfig.History > 0 ? cConfig.History : 1;
+        patched.MaxAge = cConfig.TTL;
+        // The stored duplicates window may exceed a shorter new TTL, which the server rejects. Left at 0, the server
+        // derives it from the TTL again, as it did when nats.c created the stream.
+        patched.Duplicates = 0;
+        patched.MaxBytes = cConfig.MaxBytes == 0 ? -1 : cConfig.MaxBytes;
+        patched.MaxMsgSize = cConfig.MaxValueSize == 0 ? -1 : cConfig.MaxValueSize;
+        patched.Storage = cConfig.StorageType;
+        patched.Replicas = cConfig.Replicas > 0 ? cConfig.Replicas : 1;
+
+        jsStreamInfo* updated = nullptr;
+        checkJsError(js_UpdateStream(&updated, m_jsCtx, &patched, nullptr, &jsErr), jsErr);
+        jsStreamInfo_Destroy(updated);
+
+        checkError(js_KeyValue(&store->m_kv, m_jsCtx, cConfig.Bucket));
+    });
+    return store.release();
+}
+
+KeyValue* JetStream::getKeyValue(const QString& bucket) {
+    // If something throws, it will be cleaned up by the unique_ptr's destructor instead of being leaked.
+    // We can't use make_unique because we're relying on the friend declaration.
+    auto store = std::unique_ptr<KeyValue>(new KeyValue(this));
+    checkError(js_KeyValue(&store->m_kv, m_jsCtx, bucket.toUtf8().constData()));
+    return store.release();
+}
+
+void JetStream::deleteKeyValue(const QString& bucket) const {
+    checkError(js_DeleteKeyValue(m_jsCtx, bucket.toUtf8().constData()));
+}
+
 void Message::ack(const std::optional<JsOptions>& opts) const {
     return convertOptionalAndHandle(opts, [&](jsOptions* jsOpts) {
         jsErrCode jsErr = {};
@@ -559,4 +614,57 @@ ObjStoreStatus ObjectStore::status() const {
     objStoreStatus* cStatus = nullptr;
     checkError(objStore_Status(&cStatus, m_objStore));
     return fromC(ObjStoreStatusPtr(cStatus));
+}
+
+KeyValue::~KeyValue() noexcept { kvStore_Destroy(m_kv); }
+
+uint64_t KeyValue::put(const QString& key, const QByteArray& value) const {
+    uint64_t revision = 0;
+    checkError(kvStore_Put(&revision, m_kv, key.toUtf8().constData(), value.constData(), value.size()));
+    return revision;
+}
+
+uint64_t KeyValue::update(const QString& key, const QByteArray& value, const uint64_t lastRevision) const {
+    uint64_t revision = 0;
+    checkError(
+        kvStore_Update(&revision, m_kv, key.toUtf8().constData(), value.constData(), value.size(), lastRevision)
+    );
+    return revision;
+}
+
+std::optional<KvEntry> KeyValue::get(const QString& key) const {
+    kvEntry* entry = nullptr;
+    const natsStatus s = kvStore_Get(&entry, m_kv, key.toUtf8().constData());
+    // A deleted or purged key reports NATS_NOT_FOUND, like one that never existed.
+    if (s == NATS_NOT_FOUND) {
+        return std::nullopt;
+    }
+    checkError(s);
+    return fromC(KvEntryPtr(entry));
+}
+
+void KeyValue::deleteKey(const QString& key) const {
+    checkError(kvStore_Delete(m_kv, key.toUtf8().constData()));
+}
+
+void KeyValue::purge(const QString& key) const {
+    checkError(kvStore_Purge(m_kv, key.toUtf8().constData(), nullptr));
+}
+
+QStringList KeyValue::keys() const {
+    kvKeysList list = {};
+    const natsStatus s = kvStore_Keys(&list, m_kv, nullptr);
+    // An empty bucket reports NATS_NOT_FOUND rather than an empty list.
+    if (s == NATS_NOT_FOUND) {
+        return {};
+    }
+    checkError(s);
+
+    QStringList result;
+    result.reserve(list.Count);
+    for (int i = 0; i < list.Count; ++i) {
+        result.append(QString::fromUtf8(list.Keys[i]));
+    }
+    kvKeysList_Destroy(&list);
+    return result;
 }

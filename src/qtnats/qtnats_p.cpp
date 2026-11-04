@@ -473,4 +473,18 @@ ObjStoreStatus fromC(const ObjStoreStatusPtr& status) {
     return fromC(*status);
 }
 
+KvEntry fromC(const kvEntry& entry) {
+    KvEntry result;
+    result.bucket = QString::fromUtf8(kvEntry_Bucket(&entry));
+    result.key = QString::fromUtf8(kvEntry_Key(&entry));
+    result.value = QByteArray(static_cast<const char*>(kvEntry_Value(&entry)), kvEntry_ValueLen(&entry));
+    result.revision = kvEntry_Revision(&entry);
+    result.created = toTimePoint(kvEntry_Created(&entry));
+    return result;
+}
+
+KvEntry fromC(const KvEntryPtr& entry) {
+    return fromC(*entry);
+}
+
 } // namespace QtNats
