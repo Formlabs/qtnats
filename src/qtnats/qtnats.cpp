@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include <algorithm>
 #include <mutex>
 #include <utility>
 
@@ -150,11 +151,27 @@ void disconnectedHandler(natsConnection* /*nc*/, void* closure) {
     setStatus(core, ConnectionStatus::Disconnected);
 }
 
+void closeNow(natsConnection* conn) {
+    natsConnection_Close(conn);
+    natsConnection_Destroy(conn);
+}
+
 void closeInBackground(natsConnection* conn) {
-    threadPool().start([conn] {
-        natsConnection_Close(conn);
-        natsConnection_Destroy(conn);
-    });
+    threadPool().start([conn] { closeNow(conn); });
+}
+
+// Stores a new connection in `core`. Returns false if its Client let go while it connected; the caller then
+// closes `conn`.
+bool adopt(const std::shared_ptr<ConnectionCore>& core, natsConnection* conn) {
+    const std::lock_guard lock(core->mutex);
+    core->cnatsRef = core;
+    if (!core->client)
+        return false;
+    core->conn = conn;
+    // A disconnect may already have been reported; the reconnected callback then reports Connected.
+    if (core->status == ConnectionStatus::Connecting)
+        setStatus(*core, ConnectionStatus::Connected);
+    return true;
 }
 
 void connectInBackground(const std::shared_ptr<ConnectionCore>& core, natsOptions* options) {
@@ -170,39 +187,22 @@ void connectInBackground(const std::shared_ptr<ConnectionCore>& core, natsOption
         setStatus(*core, ConnectionStatus::Closed);
         return;
     }
-
-    {
-        const std::lock_guard lock(core->mutex);
-        core->cnatsRef = core;
-        if (core->client) {
-            core->conn = conn;
-            // A disconnect may already have been reported; the reconnected callback then reports Connected.
-            if (core->status == ConnectionStatus::Connecting)
-                setStatus(*core, ConnectionStatus::Connected);
-            return;
-        }
-    }
-    // The Client closed or was destroyed while this connected.
-    natsConnection_Close(conn);
-    natsConnection_Destroy(conn);
+    if (!adopt(core, conn))
+        closeNow(conn);
 }
 
-// Detaches `core` from its Client and closes its connection in the background. Returns the status it had.
-ConnectionStatus detach(std::shared_ptr<ConnectionCore>& core) noexcept {
+// Detaches `core` from its Client. Returns its connection, which the caller closes, and the status it had.
+std::pair<natsConnection*, ConnectionStatus> detach(std::shared_ptr<ConnectionCore>& core) noexcept {
     if (!core)
-        return ConnectionStatus::Closed;
-    natsConnection* conn = nullptr;
-    ConnectionStatus status = ConnectionStatus::Closed;
+        return {nullptr, ConnectionStatus::Closed};
+    std::pair<natsConnection*, ConnectionStatus> detached;
     {
         const std::lock_guard lock(core->mutex);
         core->client = nullptr;
-        conn = std::exchange(core->conn, nullptr);
-        status = std::exchange(core->status, ConnectionStatus::Closed);
+        detached = {std::exchange(core->conn, nullptr), std::exchange(core->status, ConnectionStatus::Closed)};
     }
     core.reset();
-    if (conn)
-        closeInBackground(conn);
-    return status;
+    return detached;
 }
 
 } // namespace
@@ -226,13 +226,9 @@ Client::Client(QObject* parent)
 
 Client::~Client() noexcept { close(); }
 
-void Client::connectToServer(const Options& opts) {
-    if (m_core) {
-        const std::lock_guard lock(m_core->mutex);
-        if (m_core->status != ConnectionStatus::Closed)
-            throw Exception(NATS_ILLEGAL_STATE);
-    }
-
+std::pair<std::shared_ptr<ConnectionCore>, std::shared_ptr<natsOptions>> Client::startConnecting(
+    const Options& opts
+) {
     auto core = std::make_shared<ConnectionCore>();
     core->client = this;
     core->registry = m_registry;
@@ -250,10 +246,29 @@ void Client::connectToServer(const Options& opts) {
         return std::shared_ptr<natsOptions>(c.release(), NatsOptsDeleter{});
     });
 
-    (void)detach(m_core);
+    closeAsync();
     m_core = core;
     Q_EMIT statusChanged(ConnectionStatus::Connecting);
-    threadPool().start([core, natsOpts] { connectInBackground(core, natsOpts.get()); });
+    // A slot may have destroyed this Client, so the callers use only what this returns.
+    return {core, natsOpts};
+}
+
+void Client::connectToServer(const Options& opts) {
+    const auto started = startConnecting(opts);
+    const std::shared_ptr<ConnectionCore>& core = started.first;
+    natsConnection* conn = nullptr;
+    const natsStatus s = natsConnection_Connect(&conn, started.second.get());
+    if (s != NATS_OK) {
+        const QString text = lastErrorText(s);
+        {
+            const std::lock_guard lock(core->mutex);
+            core->lastError = text;
+            core->status = ConnectionStatus::Closed;
+        }
+        throw Exception(s);
+    }
+    if (!adopt(core, conn))
+        closeNow(conn);
 }
 
 void Client::connectToServer(const QUrl& address) {
@@ -262,8 +277,44 @@ void Client::connectToServer(const QUrl& address) {
     connectToServer(connOpts);
 }
 
+void Client::connectToServerAsync(const Options& opts) {
+    auto started = startConnecting(opts);
+    threadPool().start([core = std::move(started.first), natsOpts = std::move(started.second)] {
+        connectInBackground(core, natsOpts.get());
+    });
+}
+
+void Client::connectToServerAsync(const QUrl& address) {
+    Options connOpts;
+    connOpts.servers += address;
+    connectToServerAsync(connOpts);
+}
+
 void Client::close() noexcept {
-    if (detach(m_core) != ConnectionStatus::Closed)
+    const auto [conn, status] = detach(m_core);
+    if (conn)
+        closeNow(conn);
+
+    // cnats fails these too once it has delivered the subscriptions' last callbacks, which may be later.
+    for (const auto& pending : m_pendingAsyncRequests) {
+        if (const auto future_iface = pending.lock(); future_iface && !future_iface->isFinished()) {
+            future_iface->reportException(Exception(NATS_CONNECTION_CLOSED));
+            future_iface->reportFinished();
+        }
+    }
+    m_pendingAsyncRequests.clear();
+
+    if (status != ConnectionStatus::Closed)
+        Q_EMIT statusChanged(ConnectionStatus::Closed);
+}
+
+void Client::closeAsync() noexcept {
+    const auto [conn, status] = detach(m_core);
+    if (conn)
+        closeInBackground(conn);
+    m_pendingAsyncRequests.clear();
+
+    if (status != ConnectionStatus::Closed)
         Q_EMIT statusChanged(ConnectionStatus::Closed);
 }
 
@@ -316,6 +367,15 @@ QFuture<Message> Client::asyncRequest(const Message& msg, NatsTimeout timeout) {
     (*holder)->reportStarted();
     // Once the request is published, cnats may free the holder at any time.
     QFuture<Message> f = (*holder)->future();
+    m_pendingAsyncRequests.erase(
+        std::remove_if(
+            m_pendingAsyncRequests.begin(),
+            m_pendingAsyncRequests.end(),
+            [](const std::weak_ptr<QFutureInterface<Message>>& pending) { return pending.expired(); }
+        ),
+        m_pendingAsyncRequests.end()
+    );
+    m_pendingAsyncRequests.push_back(*holder);
 
     try {
         checkError(natsSubscription_AutoUnsubscribe(subscription, 1));

@@ -49,12 +49,6 @@ const QUrl unroutable("nats://192.0.2.1:4222");
 // Generous for CI; a blocking call would take the whole connect timeout.
 constexpr qint64 nonBlockingMs = 50;
 
-// connectToServer() returns before the connection is up.
-[[nodiscard]] bool connectAndWait(Client& c, const QUrl& url = localServer) {
-    c.connectToServer(url);
-    return QTest::qWaitFor([&c] { return c.status() == ConnectionStatus::Connected; }, 5000);
-}
-
 Options optionsFor(const QUrl& url) {
     Options options;
     options.servers = {url};
@@ -81,14 +75,17 @@ private Q_SLOTS:
     void request();
     void asyncRequest();
     void pendingRequestFailsOnClose();
-    void connectReportsConnectingThenConnected();
+    void connectFailureThrows();
+    void connectingAgainReplacesTheConnection();
+
+    void asyncConnectReportsConnectingThenConnected();
     void notConnectedYetThrows();
-    void connectFailureIsReportedAsynchronously();
-    void connectToUnroutableAddressDoesNotBlock();
-    void destroyWhileConnectingDoesNotBlock();
-    void destroyWhileConnectedDoesNotBlock();
-    void closeReportsClosedAndAllowsReconnecting();
-    void connectTwiceThrows();
+    void asyncConnectFailureIsReportedAsynchronously();
+    void asyncConnectToUnroutableAddressDoesNotBlock();
+    void destroyWhileConnectingAsyncDoesNotBlock();
+    void closeAsyncDoesNotBlock();
+    void closeAsyncReportsClosedAndAllowsReconnecting();
+    void pendingRequestFailsAfterCloseAsync();
     void manyClients();
     void sendAsapAndWriteDeadline();
     // Restarts the server, so it runs last.
@@ -115,7 +112,7 @@ void CoreTestCase::cleanupTestCase() {
 void CoreTestCase::deleteFromDirectSlot() {
     try {
         Client c;
-        QVERIFY(connectAndWait(c));
+        c.connectToServer(localServer);
         Subscription* sub = c.subscribe("test_delete");
         // Qt forbids deleting an object with a parent from another thread.
         sub->setParent(nullptr);
@@ -151,7 +148,7 @@ void CoreTestCase::subscribe() {
             cout << "Connection status: " << qPrintable(enumToString(s)) << endl;
         });
 
-        QVERIFY(connectAndWait(c));
+        c.connectToServer(localServer);
         auto sub = c.subscribe("test_subject");
 
         QList<Message> msgList;
@@ -177,7 +174,7 @@ void CoreTestCase::subscribe() {
 void CoreTestCase::emptyPayload() {
     try {
         Client c;
-        QVERIFY(connectAndWait(c));
+        c.connectToServer(localServer);
         const std::unique_ptr<Subscription> sub(c.subscribe("test_empty"));
         QList<Message> received;
         connect(sub.get(), &Subscription::received, this, [&received](const Message& m) { received += m; });
@@ -196,7 +193,7 @@ void CoreTestCase::request() {
     QProcess responder;
     try {
         Client c;
-        QVERIFY(connectAndWait(c));
+        c.connectToServer(localServer);
 
         responder.start("nats", QStringList() << "reply" << "service" << "bla");
         responder.waitForStarted();
@@ -223,7 +220,7 @@ void CoreTestCase::asyncRequest() {
         QTest::qWait(1000);
 
         Client c;
-        QVERIFY(connectAndWait(c));
+        c.connectToServer(localServer);
         QList<QFuture<Message>> futuresList;
         for (int i = 0; i < 100; i++) {
             futuresList += c.asyncRequest(Message("service", "bar"));
@@ -247,14 +244,14 @@ void CoreTestCase::asyncRequest() {
 void CoreTestCase::pendingRequestFailsOnClose() {
     try {
         Client c;
-        QVERIFY(connectAndWait(c));
+        c.connectToServer(localServer);
         // A responder that never replies keeps the request pending.
         const std::unique_ptr<Subscription> silent(c.subscribe("silent"));
         c.ping();
         QFuture<Message> f = c.asyncRequest(Message("silent", "x"), NatsTimeout{10000});
 
         c.close();
-        QTRY_VERIFY(f.isFinished());
+        QVERIFY(f.isFinished());
         try {
             f.result();
             QFAIL("The request succeeded after close()");
@@ -266,10 +263,33 @@ void CoreTestCase::pendingRequestFailsOnClose() {
     }
 }
 
-void CoreTestCase::connectReportsConnectingThenConnected() {
+void CoreTestCase::connectFailureThrows() {
+    Client c;
+    try {
+        c.connectToServer(optionsFor(closedPort));
+        QFAIL("Connecting to a closed port succeeded");
+    } catch (const Exception&) {
+    }
+    QCOMPARE(c.status(), ConnectionStatus::Closed);
+    QVERIFY(!c.errorString().isEmpty());
+}
+
+void CoreTestCase::connectingAgainReplacesTheConnection() {
+    try {
+        Client c;
+        c.connectToServer(localServer);
+        c.connectToServer(localServer);
+        QCOMPARE(c.status(), ConnectionStatus::Connected);
+        QVERIFY(c.ping());
+    } catch (const QException& e) {
+        QFAIL(e.what());
+    }
+}
+
+void CoreTestCase::asyncConnectReportsConnectingThenConnected() {
     Client c;
     QSignalSpy statuses(&c, &Client::statusChanged);
-    c.connectToServer(localServer);
+    c.connectToServerAsync(localServer);
     QCOMPARE(c.status(), ConnectionStatus::Connecting);
     QTRY_COMPARE(statuses.count(), 2);
     QCOMPARE(statuses.at(0).at(0).value<ConnectionStatus>(), ConnectionStatus::Connecting);
@@ -280,7 +300,7 @@ void CoreTestCase::connectReportsConnectingThenConnected() {
 
 void CoreTestCase::notConnectedYetThrows() {
     Client c;
-    c.connectToServer(unroutable);
+    c.connectToServerAsync(unroutable);
     try {
         c.publish(Message("anything", "x"));
         QFAIL("publish succeeded before the connection was up");
@@ -290,12 +310,12 @@ void CoreTestCase::notConnectedYetThrows() {
     QVERIFY(!c.ping());
 }
 
-void CoreTestCase::connectFailureIsReportedAsynchronously() {
+void CoreTestCase::asyncConnectFailureIsReportedAsynchronously() {
     Client c;
     QSignalSpy errors(&c, &Client::errorOccurred);
     QElapsedTimer elapsed;
     elapsed.start();
-    c.connectToServer(optionsFor(closedPort));
+    c.connectToServerAsync(optionsFor(closedPort));
     QVERIFY(elapsed.elapsed() < nonBlockingMs);
 
     QTRY_COMPARE(c.status(), ConnectionStatus::Closed);
@@ -303,18 +323,18 @@ void CoreTestCase::connectFailureIsReportedAsynchronously() {
     QVERIFY(!c.errorString().isEmpty());
 }
 
-void CoreTestCase::connectToUnroutableAddressDoesNotBlock() {
+void CoreTestCase::asyncConnectToUnroutableAddressDoesNotBlock() {
     Client c;
     QElapsedTimer elapsed;
     elapsed.start();
-    c.connectToServer(optionsFor(unroutable));
+    c.connectToServerAsync(optionsFor(unroutable));
     QVERIFY(elapsed.elapsed() < nonBlockingMs);
     QTRY_COMPARE_WITH_TIMEOUT(c.status(), ConnectionStatus::Closed, 5000);
 }
 
-void CoreTestCase::destroyWhileConnectingDoesNotBlock() {
+void CoreTestCase::destroyWhileConnectingAsyncDoesNotBlock() {
     auto c = std::make_unique<Client>();
-    c->connectToServer(optionsFor(unroutable));
+    c->connectToServerAsync(optionsFor(unroutable));
     QElapsedTimer elapsed;
     elapsed.start();
     c.reset();
@@ -323,47 +343,50 @@ void CoreTestCase::destroyWhileConnectingDoesNotBlock() {
     QTest::qWait(1500);
 }
 
-void CoreTestCase::destroyWhileConnectedDoesNotBlock() {
+void CoreTestCase::closeAsyncDoesNotBlock() {
     auto c = std::make_unique<Client>();
-    QVERIFY(connectAndWait(*c));
+    c->connectToServer(localServer);
     QElapsedTimer elapsed;
     elapsed.start();
+    c->closeAsync();
     c.reset();
     QVERIFY(elapsed.elapsed() < nonBlockingMs);
     QTest::qWait(500);
 }
 
-void CoreTestCase::closeReportsClosedAndAllowsReconnecting() {
+void CoreTestCase::closeAsyncReportsClosedAndAllowsReconnecting() {
     Client c;
-    QVERIFY(connectAndWait(c));
+    c.connectToServer(localServer);
     QSignalSpy statuses(&c, &Client::statusChanged);
-    c.close();
+    c.closeAsync();
     QCOMPARE(statuses.count(), 1);
     QCOMPARE(statuses.at(0).at(0).value<ConnectionStatus>(), ConnectionStatus::Closed);
     QCOMPARE(c.status(), ConnectionStatus::Closed);
     QVERIFY(c.getNatsConnection() == nullptr);
 
-    QVERIFY(connectAndWait(c));
+    c.connectToServerAsync(localServer);
+    QTRY_COMPARE(c.status(), ConnectionStatus::Connected);
     QVERIFY(c.ping());
 }
 
-void CoreTestCase::connectTwiceThrows() {
-    Client c;
-    c.connectToServer(unroutable);
+void CoreTestCase::pendingRequestFailsAfterCloseAsync() {
     try {
+        Client c;
         c.connectToServer(localServer);
-        QFAIL("A second connect succeeded while the first was in flight");
-    } catch (const Exception& e) {
-        QCOMPARE(e.errorCode, NATS_ILLEGAL_STATE);
-    }
-    c.close();
+        const std::unique_ptr<Subscription> silent(c.subscribe("silent"));
+        c.ping();
+        QFuture<Message> f = c.asyncRequest(Message("silent", "x"), NatsTimeout{10000});
 
-    QVERIFY(connectAndWait(c));
-    try {
-        c.connectToServer(localServer);
-        QFAIL("A second connect succeeded while connected");
-    } catch (const Exception& e) {
-        QCOMPARE(e.errorCode, NATS_ILLEGAL_STATE);
+        c.closeAsync();
+        QTRY_VERIFY(f.isFinished());
+        try {
+            f.result();
+            QFAIL("The request succeeded after closeAsync()");
+        } catch (const Exception& e) {
+            QCOMPARE(e.errorCode, NATS_CONNECTION_CLOSED);
+        }
+    } catch (const QException& e) {
+        QFAIL(e.what());
     }
 }
 
@@ -374,7 +397,7 @@ void CoreTestCase::manyClients() {
     elapsed.start();
     for (int i = 0; i < count; i++) {
         clients.push_back(std::make_unique<Client>());
-        clients.back()->connectToServer(localServer);
+        clients.back()->connectToServerAsync(localServer);
     }
     const qint64 connectMs = elapsed.elapsed();
     QTRY_VERIFY_WITH_TIMEOUT(
@@ -387,9 +410,11 @@ void CoreTestCase::manyClients() {
     );
 
     elapsed.restart();
+    for (const auto& c : clients)
+        c->closeAsync();
     clients.clear();
     const qint64 destroyMs = elapsed.elapsed();
-    cout << count << " clients: connect " << connectMs << " ms, destroy " << destroyMs << " ms" << endl;
+    cout << count << " clients: connect " << connectMs << " ms, close and destroy " << destroyMs << " ms" << endl;
     QVERIFY(connectMs < 1000);
     QVERIFY(destroyMs < 1000);
     QTest::qWait(2000);
@@ -402,7 +427,6 @@ void CoreTestCase::sendAsapAndWriteDeadline() {
         options.writeDeadline = NatsTimeout{2000};
         Client c;
         c.connectToServer(options);
-        QTRY_COMPARE(c.status(), ConnectionStatus::Connected);
 
         const std::unique_ptr<Subscription> sub(c.subscribe("test_asap"));
         int received = 0;
@@ -421,7 +445,6 @@ void CoreTestCase::reconnectsAfterServerRestart() {
     options.reconnectWait = 200;
     Client c;
     c.connectToServer(options);
-    QTRY_COMPARE(c.status(), ConnectionStatus::Connected);
 
     natsServer.close();
     natsServer.waitForFinished();

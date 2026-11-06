@@ -17,7 +17,10 @@ Inherits: `QObject`
 explicit Client(QObject* parent = nullptr);
 void connectToServer(const Options& opts);
 void connectToServer(const QUrl& address);
+void connectToServerAsync(const Options& opts);
+void connectToServerAsync(const QUrl& address);
 void close() noexcept;
+void closeAsync() noexcept;
 void publish(const Message& msg);
 Message request(const Message& msg, int64_t timeout = 2000);
 QFuture<Message> asyncRequest(const Message& msg, int64_t timeout = 2000);
@@ -39,19 +42,22 @@ void statusChanged(ConnectionStatus status);
 ```
 
 ### Connecting and closing
-Neither connecting nor closing blocks, so a thread can manage hundreds of Clients. Call a Client's functions from the
-thread it lives on.
+Call a Client's functions from the thread it lives on.
 
-- `connectToServer` emits `statusChanged(Connecting)` and returns. It connects on a qtnats thread, then emits
-  `statusChanged(Connected)`, or `errorOccurred` and `statusChanged(Closed)` if it fails. Invalid options still throw
-  at once. Calling it unless the Client is `Closed` throws `NATS_ILLEGAL_STATE`.
-- Until `Connected`, functions that need the connection, such as `publish`, `subscribe` and `jetStream`, throw
-  `NATS_NOT_YET_CONNECTED`, and `ping` returns false.
-- `close()` and the destructor detach the connection, emit `statusChanged(Closed)` and return; the connection closes
-  in the background. A pending `asyncRequest` future then fails with `NATS_CONNECTION_CLOSED`. After `close()`, call
-  `connectToServer` again to reconnect.
-- Signals for asynchronous events (disconnects, reconnects, a background connect's result) are emitted on cnats or
-  qtnats threads, so connect to them with the default (auto) connection type.
+`connectToServer` blocks until connected and throws if it can't connect. `close()` blocks until the connection has
+closed, then fails pending `asyncRequest` futures with `NATS_CONNECTION_CLOSED`. The destructor calls `close()`.
+
+To manage many Clients from one thread, such as a GUI thread, use the non-blocking versions:
+- `connectToServerAsync` emits `statusChanged(Connecting)` and returns. It connects on a qtnats thread, then emits
+  `statusChanged(Connected)`, or `errorOccurred` and `statusChanged(Closed)` if it fails. Invalid options still
+  throw at once. Until `Connected`, functions that need the connection, such as `publish`, `subscribe` and
+  `jetStream`, throw `NATS_NOT_YET_CONNECTED`, and `ping` returns false.
+- `closeAsync()` emits `statusChanged(Closed)` and returns; the connection closes on a qtnats thread, and pending
+  `asyncRequest` futures then fail. Call it before destroying a Client so the destructor doesn't block.
+
+Either connect closes any existing connection first. Signals for asynchronous events, such as disconnects, reconnects
+and `connectToServerAsync`'s result, are emitted on cnats or qtnats threads, so connect to them with the default
+(auto) connection type.
 
 `Options::sendAsap` sends each write at once instead of from a flusher thread, saving a thread per connection.
 `Options::writeDeadline` bounds blocking socket writes, and so how long closing a connection to an unresponsive
