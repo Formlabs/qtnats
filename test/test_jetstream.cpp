@@ -76,6 +76,7 @@ void JetStreamTestCase::initTestCase() {
 
     client = std::make_unique<Client>();
     client->connectToServer(QUrl("nats://localhost:4222"));
+    QTRY_COMPARE(client->status(), ConnectionStatus::Connected);
     js = client->jetStream();
 
     connect(js, &JetStream::errorOccurred, [](natsStatus, jsErrCode, const QString &text, const Message&) {
@@ -493,6 +494,7 @@ void JetStreamTestCase::asyncSubscribeNoStream() {
 void JetStreamTestCase::asyncSubscribeAfterClose() {
     Client closed;
     closed.connectToServer(QUrl("nats://localhost:4222"));
+    QTRY_COMPARE(closed.status(), ConnectionStatus::Connected);
     JetStream* closedJs = closed.jetStream();
     closed.close();
 

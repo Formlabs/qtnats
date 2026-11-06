@@ -14,7 +14,8 @@
  * limitations under the License.
  */
 
-#include <algorithm>
+#include <mutex>
+#include <utility>
 
 #include <QFutureInterface>
 #include <QThread>
@@ -60,8 +61,19 @@ Message::Message(natsMsg* msg)
 // =============================================================================
 #pragma region Classes
 
-static void asyncRequestCallback(natsConnection* /*nc*/, natsSubscription* natsSub, natsMsg* msg, void* closure) {
-    auto* const future_iface = reinterpret_cast<QFutureInterface<Message>*>(closure);
+namespace {
+
+class GlobalThreadPool : public QThreadPool {
+public:
+    GlobalThreadPool() { setMaxThreadCount(32); }
+};
+Q_GLOBAL_STATIC(GlobalThreadPool, globalThreadPool)
+
+// Owns an asyncRequest's QFutureInterface for cnats. Freed in onComplete, after the subscription's last callback.
+using FutureHolder = std::shared_ptr<QFutureInterface<Message>>;
+
+void asyncRequestCallback(natsConnection* /*nc*/, natsSubscription* natsSub, natsMsg* msg, void* closure) {
+    const FutureHolder& future_iface = *static_cast<FutureHolder*>(closure);
 
     if (msg) {
         if (natsMsg_IsNoResponders(msg)) {
@@ -75,74 +87,173 @@ static void asyncRequestCallback(natsConnection* /*nc*/, natsSubscription* natsS
         future_iface->reportException(Exception(NATS_TIMEOUT));
     }
     future_iface->reportFinished();
-    // Do NOT delete here — the Client's m_pendingAsyncRequests vector owns the shared_ptr,
-    // preventing premature destruction even if Client::close() runs concurrently.
     natsSubscription_Destroy(natsSub);
 }
 
-void Client::errorHandler(natsConnection* /*nc*/, natsSubscription* subscription, natsStatus err, void* closure) {
-    auto* const c = reinterpret_cast<Client*>(closure);
+// Also runs when the connection closes before a reply arrives.
+void asyncRequestComplete(void* closure) {
+    auto* const holder = static_cast<FutureHolder*>(closure);
+    if (!(*holder)->isFinished()) {
+        (*holder)->reportException(Exception(NATS_CONNECTION_CLOSED));
+        (*holder)->reportFinished();
+    }
+    delete holder;
+}
+
+ConnectionCore& coreFrom(void* closure) { return *static_cast<ConnectionCore*>(closure); }
+
+// The caller holds core.mutex.
+void setStatus(ConnectionCore& core, ConnectionStatus status) {
+    core.status = status;
+    if (core.client)
+        Q_EMIT core.client->statusChanged(status);
+}
+
+void errorHandler(natsConnection* /*nc*/, natsSubscription* subscription, natsStatus err, void* closure) {
+    ConnectionCore& core = coreFrom(closure);
     const QString text = lastErrorText(err);
-    Q_EMIT c->errorOccurred(err, text);
+    {
+        const std::lock_guard lock(core.mutex);
+        if (core.client)
+            Q_EMIT core.client->errorOccurred(err, text);
+    }
 
     if (!subscription)
         return;
     // cnats keeps `subscription` alive during this callback, so no other subscription can reuse its address.
-    SubscriptionRelay* const relay = c->m_registry->retain(subscription);
+    SubscriptionRelay* const relay = core.registry->retain(subscription);
     if (!relay)
         return;
     relay->withTarget([&](Subscription& sub) { Q_EMIT sub.errorOccurred(err, text); });
     relay->release();
 }
 
-void Client::closedConnectionHandler(natsConnection* /*nc*/, void* closure) {
-    auto* const c = reinterpret_cast<Client*>(closure);
-    // can ask for last error here?
-    Q_EMIT c->statusChanged(ConnectionStatus::Closed);
-    c->semaphore.release();
+void closedHandler(natsConnection* /*nc*/, void* closure) {
+    ConnectionCore& core = coreFrom(closure);
+    std::shared_ptr<ConnectionCore> cnatsRef;
+    {
+        const std::lock_guard lock(core.mutex);
+        setStatus(core, ConnectionStatus::Closed);
+        cnatsRef = std::move(core.cnatsRef);
+    }
 }
 
-static void reconnectedHandler(natsConnection* /*nc*/, void* closure) {
-    auto* const c = reinterpret_cast<Client*>(closure);
-    Q_EMIT c->statusChanged(ConnectionStatus::Connected);
+void reconnectedHandler(natsConnection* /*nc*/, void* closure) {
+    ConnectionCore& core = coreFrom(closure);
+    const std::lock_guard lock(core.mutex);
+    setStatus(core, ConnectionStatus::Connected);
 }
 
-static void disconnectedHandler(natsConnection* /*nc*/, void* closure) {
-    auto* const c = reinterpret_cast<Client*>(closure);
-    Q_EMIT c->statusChanged(ConnectionStatus::Disconnected);
+void disconnectedHandler(natsConnection* /*nc*/, void* closure) {
+    ConnectionCore& core = coreFrom(closure);
+    const std::lock_guard lock(core.mutex);
+    setStatus(core, ConnectionStatus::Disconnected);
 }
+
+void closeInBackground(natsConnection* conn) {
+    threadPool().start([conn] {
+        natsConnection_Close(conn);
+        natsConnection_Destroy(conn);
+    });
+}
+
+void connectInBackground(const std::shared_ptr<ConnectionCore>& core, natsOptions* options) {
+    natsConnection* conn = nullptr;
+    const natsStatus s = natsConnection_Connect(&conn, options);
+    if (s != NATS_OK) {
+        // A failed connect makes no callbacks.
+        const QString text = lastErrorText(s);
+        const std::lock_guard lock(core->mutex);
+        core->lastError = text;
+        if (core->client)
+            Q_EMIT core->client->errorOccurred(s, text);
+        setStatus(*core, ConnectionStatus::Closed);
+        return;
+    }
+
+    {
+        const std::lock_guard lock(core->mutex);
+        core->cnatsRef = core;
+        if (core->client) {
+            core->conn = conn;
+            // A disconnect may already have been reported; the reconnected callback then reports Connected.
+            if (core->status == ConnectionStatus::Connecting)
+                setStatus(*core, ConnectionStatus::Connected);
+            return;
+        }
+    }
+    // The Client closed or was destroyed while this connected.
+    natsConnection_Close(conn);
+    natsConnection_Destroy(conn);
+}
+
+// Detaches `core` from its Client and closes its connection in the background. Returns the status it had.
+ConnectionStatus detach(std::shared_ptr<ConnectionCore>& core) noexcept {
+    if (!core)
+        return ConnectionStatus::Closed;
+    natsConnection* conn = nullptr;
+    ConnectionStatus status = ConnectionStatus::Closed;
+    {
+        const std::lock_guard lock(core->mutex);
+        core->client = nullptr;
+        conn = std::exchange(core->conn, nullptr);
+        status = std::exchange(core->status, ConnectionStatus::Closed);
+    }
+    core.reset();
+    if (conn)
+        closeInBackground(conn);
+    return status;
+}
+
+} // namespace
+
+QThreadPool& QtNats::threadPool() { return *globalThreadPool(); }
 
 Client::Client(QObject* parent)
     : QObject(parent)
-    , semaphore(1)
-    , m_registry(std::make_shared<SubscriptionRegistry>())
-    , m_subscribePool(new QThreadPool(this)) {
-    const int cpuCoresCount = QThread::idealThreadCount(); // this function may fail, thus the check
-    if (cpuCoresCount >= 2) {
-        nats_SetMessageDeliveryPoolSize(cpuCoresCount);
-    }
+    , m_registry(std::make_shared<SubscriptionRegistry>()) {
+    // Open the library here, before any pool thread uses it: cnats fails a thread that arrives while another
+    // thread is still opening it.
+    static std::once_flag opened;
+    std::call_once(opened, [] {
+        nats_Open(-1);
+        const int cpuCoresCount = QThread::idealThreadCount(); // this function may fail, thus the check
+        if (cpuCoresCount >= 2) {
+            nats_SetMessageDeliveryPoolSize(cpuCoresCount);
+        }
+    });
 }
 
 Client::~Client() noexcept { close(); }
 
 void Client::connectToServer(const Options& opts) {
-    convertAndHandle(opts, [&](const auto& c) {
+    if (m_core) {
+        const std::lock_guard lock(m_core->mutex);
+        if (m_core->status != ConnectionStatus::Closed)
+            throw Exception(NATS_ILLEGAL_STATE);
+    }
+
+    auto core = std::make_shared<ConnectionCore>();
+    core->client = this;
+    core->registry = m_registry;
+    std::shared_ptr<natsOptions> natsOpts = convertAndHandle(opts, [&](NatsOptsPtr& c) {
         natsOptions* const nats_opts = c.get();
 
         // don't create a thread for each subscription, since we may have a lot of subscriptions
-        // number of threads in the pool is set by nats_SetMessageDeliveryPoolSize above
-        natsOptions_UseGlobalMessageDelivery(nats_opts, true);
+        // number of threads in the pool is set by nats_SetMessageDeliveryPoolSize in the constructor
+        checkError(natsOptions_UseGlobalMessageDelivery(nats_opts, true));
 
-        natsOptions_SetErrorHandler(nats_opts, &errorHandler, this);
-        natsOptions_SetClosedCB(nats_opts, &closedConnectionHandler, this);
-        natsOptions_SetDisconnectedCB(nats_opts, &disconnectedHandler, this);
-        natsOptions_SetReconnectedCB(nats_opts, &reconnectedHandler, this);
-
-        Q_EMIT statusChanged(ConnectionStatus::Connecting);
-        checkError(natsConnection_Connect(&m_conn, nats_opts));
-        Q_EMIT statusChanged(ConnectionStatus::Connected);
-        // TODO handle reopening
+        checkError(natsOptions_SetErrorHandler(nats_opts, &errorHandler, core.get()));
+        checkError(natsOptions_SetClosedCB(nats_opts, &closedHandler, core.get()));
+        checkError(natsOptions_SetDisconnectedCB(nats_opts, &disconnectedHandler, core.get()));
+        checkError(natsOptions_SetReconnectedCB(nats_opts, &reconnectedHandler, core.get()));
+        return std::shared_ptr<natsOptions>(c.release(), NatsOptsDeleter{});
     });
+
+    (void)detach(m_core);
+    m_core = core;
+    Q_EMIT statusChanged(ConnectionStatus::Connecting);
+    threadPool().start([core, natsOpts] { connectInBackground(core, natsOpts.get()); });
 }
 
 void Client::connectToServer(const QUrl& address) {
@@ -152,92 +263,81 @@ void Client::connectToServer(const QUrl& address) {
 }
 
 void Client::close() noexcept {
-    if (!m_conn) {
-        return;
-    }
-    // sync this thread with closedConnectionHandler otherwise I get a crash when trying to Q_EMIT
-    // c->statusChanged(ConnectionStatus::Closed);
-    semaphore.acquire();
-    natsConnection_Close(m_conn);
-    semaphore.acquire(); // here we'll wait until the callback is done
-    semaphore.release();
-    natsConnection_Destroy(m_conn);
-    m_conn = nullptr;
+    if (detach(m_core) != ConnectionStatus::Closed)
+        Q_EMIT statusChanged(ConnectionStatus::Closed);
+}
 
-    // After natsConnection_Destroy, no more callbacks will fire.
-    // Resolve any async-request futures that were never completed.
-    for (auto& fi : m_pendingAsyncRequests) {
-        if (!fi->isFinished()) {
-            fi->reportException(Exception(NATS_CONNECTION_CLOSED));
-            fi->reportFinished();
-        }
-    }
-    m_pendingAsyncRequests.clear();
+natsConnection* Client::getNatsConnection() const {
+    if (!m_core)
+        return nullptr;
+    const std::lock_guard lock(m_core->mutex);
+    return m_core->conn;
+}
+
+natsConnection* Client::connection() const {
+    natsConnection* const conn = getNatsConnection();
+    if (!conn)
+        throw Exception(NATS_NOT_YET_CONNECTED);
+    return conn;
 }
 
 void Client::publish(const Message& msg) {
+    natsConnection* const conn = connection();
     convertAndHandle(msg, nullptr, [&](const auto& c) {
-        checkError(natsConnection_PublishMsg(m_conn, c.get()));
+        checkError(natsConnection_PublishMsg(conn, c.get()));
     });
 }
 
 Message Client::request(const Message& msg, NatsTimeout timeout) {
+    natsConnection* const conn = connection();
     return convertAndHandle(msg, nullptr, [&](const auto& c) {
         natsMsg* replyMsg;
-        checkError(natsConnection_RequestMsg(&replyMsg, m_conn, c.get(), timeout.count()));
+        checkError(natsConnection_RequestMsg(&replyMsg, conn, c.get(), timeout.count()));
         return fromC(NatsMsgPtr(replyMsg));
     });
 }
 
 QFuture<Message> Client::asyncRequest(const Message& msg, NatsTimeout timeout) {
-    // QFutureInterface is undocumented; Qt6 provides QPromise instead
-    // based on https://stackoverflow.com/questions/59197694/qt-how-to-create-a-qfuture-from-a-thread
-    auto future_iface = std::make_shared<QFutureInterface<Message> >();
+    natsConnection* const conn = connection();
     const QByteArray inbox = Client::newInbox();
 
+    // QFutureInterface is undocumented; Qt6 provides QPromise instead
+    // based on https://stackoverflow.com/questions/59197694/qt-how-to-create-a-qfuture-from-a-thread
+    auto* const holder = new FutureHolder(std::make_shared<QFutureInterface<Message>>());
     natsSubscription* subscription = nullptr;
+    const natsStatus s = natsConnection_SubscribeTimeout(
+        &subscription, conn, inbox.constData(), timeout.count(), &asyncRequestCallback, holder
+    );
+    if (s != NATS_OK) {
+        delete holder;
+        throw Exception(s);
+    }
+    (void)natsSubscription_SetOnCompleteCB(subscription, &asyncRequestComplete, holder);
+    (*holder)->reportStarted();
+    // Once the request is published, cnats may free the holder at any time.
+    QFuture<Message> f = (*holder)->future();
 
-    checkError(natsConnection_SubscribeTimeout(
-        &subscription, m_conn, inbox.constData(), timeout.count(), &asyncRequestCallback, future_iface.get()
-    ));
     try {
         checkError(natsSubscription_AutoUnsubscribe(subscription, 1));
         // can't do msg.reply = inbox; publish(msg); because "msg" is constant
         convertAndHandle(msg, inbox.constData(), [&](const auto& p) {
-            checkError(natsConnection_PublishMsg(m_conn, p.get()));
+            checkError(natsConnection_PublishMsg(conn, p.get()));
         });
     } catch (...) {
-        // Destroy the subscription before the shared_ptr destroys the QFutureInterface,
-        // otherwise the subscription callback would fire against freed memory.
         natsSubscription_Destroy(subscription);
         throw;
     }
-
-    future_iface->reportStarted();
-    auto f = future_iface->future();
-
-    // Purge completed futures, then track this one so close() can resolve it
-    // if the connection is torn down before the callback fires.
-    m_pendingAsyncRequests.erase(
-        std::remove_if(
-            m_pendingAsyncRequests.begin(),
-            m_pendingAsyncRequests.end(),
-            [](const std::shared_ptr<QFutureInterface<Message> >& fi) { return fi->isFinished(); }
-        ),
-        m_pendingAsyncRequests.end()
-    );
-    m_pendingAsyncRequests.push_back(std::move(future_iface));
-
     return f;
 }
 
 Subscription* Client::subscribe(const QString& subject) {
+    natsConnection* const conn = connection();
     // avoid a memory leak if checkError throws
     // can't use make_unique because Subscription's constructor is private
     auto sub = std::unique_ptr<Subscription>(new Subscription(m_registry));
     natsSubscription* natsSub = nullptr;
     checkError(
-        natsConnection_Subscribe(&natsSub, m_conn, subject.toUtf8().constData(), &subscriptionCallback, sub->m_relay)
+        natsConnection_Subscribe(&natsSub, conn, subject.toUtf8().constData(), &subscriptionCallback, sub->m_relay)
     );
     (void)attachRelay(sub->m_relay, natsSub);
     sub->setParent(this);
@@ -245,11 +345,12 @@ Subscription* Client::subscribe(const QString& subject) {
 }
 
 Subscription* Client::subscribe(const QString& subject, const QString& queueGroup) {
+    natsConnection* const conn = connection();
     auto sub = std::unique_ptr<Subscription>(new Subscription(m_registry));
     natsSubscription* natsSub = nullptr;
     checkError(natsConnection_QueueSubscribe(
         &natsSub,
-        m_conn,
+        conn,
         subject.toUtf8().constData(),
         queueGroup.toUtf8().constData(),
         &subscriptionCallback,
@@ -261,25 +362,40 @@ Subscription* Client::subscribe(const QString& subject, const QString& queueGrou
 }
 
 bool Client::ping(NatsTimeout timeout) noexcept {
-    const natsStatus s = natsConnection_FlushTimeout(m_conn, timeout.count());
+    natsConnection* const conn = getNatsConnection();
+    if (!conn)
+        return false;
+    const natsStatus s = natsConnection_FlushTimeout(conn, timeout.count());
     return (s == NATS_OK);
 }
 
 QUrl Client::currentServer() const {
+    natsConnection* const conn = getNatsConnection();
+    if (!conn)
+        return QUrl();
     char buffer[500];
-    const natsStatus s = natsConnection_GetConnectedUrl(m_conn, buffer, sizeof(buffer));
+    const natsStatus s = natsConnection_GetConnectedUrl(conn, buffer, sizeof(buffer));
     if (s != NATS_OK) {
         return QUrl();
     }
     return QUrl(QString::fromUtf8(buffer));
 }
 
-ConnectionStatus Client::status() const { return ConnectionStatus(natsConnection_Status(m_conn)); }
+ConnectionStatus Client::status() const {
+    if (!m_core)
+        return ConnectionStatus::Closed;
+    const std::lock_guard lock(m_core->mutex);
+    return m_core->status;
+}
 
 QString Client::errorString() const {
-    // TODO handle when m_conn==nullptr ?
+    if (!m_core)
+        return QString();
+    const std::lock_guard lock(m_core->mutex);
+    if (!m_core->conn)
+        return m_core->lastError;
     const char* buffer = nullptr;
-    natsConnection_GetLastError(m_conn, &buffer);
+    natsConnection_GetLastError(m_core->conn, &buffer);
     return QString::fromUtf8(buffer);
 }
 

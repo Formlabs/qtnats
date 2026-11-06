@@ -77,6 +77,23 @@ private:
     std::unordered_map<natsSubscription*, SubscriptionRelay*> relays;
 };
 
+// One connection attempt's state, shared by its Client, the pool jobs that connect and close it, and its cnats
+// callbacks, so none of them depends on the Client still existing. The Client detaches by clearing `client`;
+// callbacks and jobs emit only while holding `mutex`, which is recursive so a direct slot may call back in.
+struct ConnectionCore {
+    std::recursive_mutex mutex;
+    Client* client = nullptr;
+    natsConnection* conn = nullptr;
+    ConnectionStatus status = ConnectionStatus::Connecting;
+    QString lastError;
+    std::shared_ptr<SubscriptionRegistry> registry;
+    // Keeps this core alive for cnats from a successful connect until the closed callback, its last callback.
+    std::shared_ptr<ConnectionCore> cnatsRef;
+};
+
+// Runs connects, teardowns and asynchronous subscribes for every Client, so none of them blocks its caller.
+QThreadPool& threadPool();
+
 void checkError(natsStatus s);
 void subscriptionCallback(natsConnection* nc, natsSubscription* sub, natsMsg* msg, void* closure);
 // Hands cnats its reference and registers `sub` for error routing. Returns false if the Subscription is gone; the
@@ -378,6 +395,8 @@ auto convertAndHandle(const Options& opts, F&& handler) -> std::invoke_result_t<
     checkError(natsOptions_SetReconnectBufSize(o, opts.reconnectBufferSize));
     checkError(natsOptions_SetMaxPendingMsgs(o, opts.maxPendingMessages));
     checkError(natsOptions_SetNoEcho(o, !opts.echo)); // NB! reverted flag
+    checkError(natsOptions_SetSendAsap(o, opts.sendAsap));
+    checkError(natsOptions_SetWriteDeadline(o, opts.writeDeadline.count()));
 
     return handler(ptr);
 }

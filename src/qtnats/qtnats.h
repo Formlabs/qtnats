@@ -571,6 +571,11 @@ struct QTNATS_EXPORT Options {
     int64_t reconnectWait = 2000;              // NATS_OPTS_DEFAULT_RECONNECT_WAIT
     int reconnectBufferSize = 8 * 1024 * 1024; // NATS_OPTS_DEFAULT_RECONNECT_BUF_SIZE
     int maxPendingMessages = 65536;            // NATS_OPTS_DEFAULT_MAX_PENDING_MSGS
+    // Sends each write at once instead of from a flusher thread, saving one thread per connection.
+    bool sendAsap = false;
+    // Bounds blocking socket writes, and so how long closing a connection to an unresponsive server takes.
+    // Zero means no deadline.
+    NatsTimeout writeDeadline{0};
 
     // mTLS options
     QString certFile; // Client certificate file path
@@ -594,7 +599,9 @@ class JetStream;
 class ObjectStore;
 struct SubscriptionRegistry;
 struct SubscriptionRelay;
+struct ConnectionCore;
 
+// Call a Client's functions from the thread it lives on. None of them waits for the network to connect or close.
 class QTNATS_EXPORT Client : public QObject {
     Q_OBJECT
     Q_DISABLE_COPY(Client)
@@ -602,6 +609,7 @@ class QTNATS_EXPORT Client : public QObject {
 public:
     explicit Client(QObject* parent = nullptr);
 
+    // Closes the connection in the background; see close().
     ~Client() noexcept override;
 
     Client(Client&&) = delete;
@@ -610,10 +618,16 @@ public:
 
     // General client manipulation functions.
 
+    // Starts connecting in the background and returns at once, after emitting statusChanged(Connecting). Then emits
+    // statusChanged(Connected), or errorOccurred and statusChanged(Closed) if the connect fails. Messaging and
+    // subscribing throw NATS_NOT_YET_CONNECTED until Connected. Throws NATS_ILLEGAL_STATE unless the Client is
+    // Closed, and throws synchronously for invalid options.
     void connectToServer(const Options& opts);
 
     void connectToServer(const QUrl& address);
 
+    // Detaches the connection and emits statusChanged(Closed) at once. The connection itself closes in the
+    // background, and asyncRequest futures still pending fail with NATS_CONNECTION_CLOSED once it has.
     void close() noexcept;
 
     QUrl currentServer() const;
@@ -624,7 +638,8 @@ public:
 
     static QByteArray newInbox();
 
-    natsConnection* getNatsConnection() const { return m_conn; }
+    // Null unless Connected (or reconnecting).
+    natsConnection* getNatsConnection() const;
 
     // Functions for creating durable objects that are related to the client.
     // The client owns these objects and will manage their lifetimes, so they are returned as raw pointers.
@@ -646,25 +661,21 @@ public:
     bool ping(NatsTimeout timeout = NatsTimeout{10000}) noexcept;
 
 Q_SIGNALS:
+    // Both are emitted on cnats or qtnats threads for asynchronous events, and on the Client's thread for
+    // connectToServer() and close().
     void errorOccurred(natsStatus error, const QString& text);
 
     void statusChanged(ConnectionStatus status);
 
 private:
-    natsConnection* m_conn = nullptr;
-    QSemaphore semaphore;
+    // Throws NATS_NOT_YET_CONNECTED if there is no connection.
+    natsConnection* connection() const;
 
-    // Prevent QFutureInterface leak when close() destroys subscriptions
-    // before asyncRequest callbacks fire.
-    std::vector<std::shared_ptr<QFutureInterface<Message>>> m_pendingAsyncRequests;
+    // Null before the first connectToServer() and after close().
+    std::shared_ptr<ConnectionCore> m_core;
 
     // Shared: child Subscriptions outlive the Client's members.
     std::shared_ptr<SubscriptionRegistry> m_registry;
-
-    QThreadPool* m_subscribePool;
-
-    static void closedConnectionHandler(natsConnection* nc, void* closure);
-    static void errorHandler(natsConnection* nc, natsSubscription* subscription, natsStatus err, void* closure);
 
     friend class JetStream;
 };
