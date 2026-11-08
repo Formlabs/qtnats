@@ -768,6 +768,21 @@ void JetStreamTestCase::keyValue() {
         QCOMPARE(streamConfig.maxMsgsPerSubject, std::optional<uint64_t>{3});
         QCOMPARE(streamConfig.maxBytes, std::optional<uint64_t>{1024 * 1024});
 
+        // A marker TTL turns on per-message TTL for the stream and lets purge() leave a marker the server drops.
+        const KeyValue* expiring = js->createOrUpdateKeyValue({
+            .bucket = bucket,
+            .description = "Updated",
+            .markerTtl = std::chrono::seconds{1},
+        });
+        const auto withMarkerTtl = js->getStreamInfo(QString{"KV_"} + bucket).config;
+        QVERIFY(withMarkerTtl.allowMsgTtl);
+        QCOMPARE(withMarkerTtl.subjectDeleteMarkerTtl, std::optional<NatsDuration>{std::chrono::seconds{1}});
+        expiring->put("d", "soon gone");
+        expiring->purge("d", std::chrono::seconds{1});
+        QVERIFY(!expiring->get("d").has_value());
+        const auto withMarker = js->getStreamInfo(QString{"KV_"} + bucket).state.msgs;
+        QTRY_COMPARE_WITH_TIMEOUT(js->getStreamInfo(QString{"KV_"} + bucket).state.msgs, withMarker - 1, 5000);
+
         // A TTL shorter than the stream's two-minute duplicates window is accepted; the server shrinks the window.
         js->createOrUpdateKeyValue({.bucket = bucket, .description = "Updated", .ttl = std::chrono::seconds{30}});
         const auto withTtl = js->getStreamInfo(QString{"KV_"} + bucket).config;

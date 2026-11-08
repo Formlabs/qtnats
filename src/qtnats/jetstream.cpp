@@ -265,6 +265,12 @@ KeyValue* JetStream::createOrUpdateKeyValue(const KvConfig& config) {
         patched.MaxMsgSize = cConfig.MaxValueSize == 0 ? -1 : cConfig.MaxValueSize;
         patched.Storage = cConfig.StorageType;
         patched.Replicas = cConfig.Replicas > 0 ? cConfig.Replicas : 1;
+        // Per-message TTL can be turned on for a stream but never off again, so a config without a marker TTL
+        // leaves the stream's setting alone.
+        if (cConfig.LimitMarkerTTL > 0) {
+            patched.AllowMsgTTL = true;
+            patched.SubjectDeleteMarkerTTL = cConfig.LimitMarkerTTL;
+        }
 
         jsStreamInfo* updated = nullptr;
         checkJsError(js_UpdateStream(&updated, m_jsCtx, &patched, nullptr, &jsErr), jsErr);
@@ -647,8 +653,12 @@ void KeyValue::deleteKey(const QString& key) const {
     checkError(kvStore_Delete(m_kv, key.toUtf8().constData()));
 }
 
-void KeyValue::purge(const QString& key) const {
-    checkError(kvStore_Purge(m_kv, key.toUtf8().constData(), nullptr));
+void KeyValue::purge(const QString& key, const std::optional<NatsDuration> markerTtl) const {
+    kvPurgeOptions opts;
+    kvPurgeOptions_Init(&opts);
+    // Milliseconds, unlike kvConfig.LimitMarkerTTL; 0 leaves the marker without an expiry.
+    opts.TTL = markerTtl.has_value() ? std::chrono::duration_cast<std::chrono::milliseconds>(*markerTtl).count() : 0;
+    checkError(kvStore_Purge(m_kv, key.toUtf8().constData(), &opts));
 }
 
 QStringList KeyValue::keys() const {

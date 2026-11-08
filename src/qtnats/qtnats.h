@@ -272,6 +272,9 @@ struct JsStreamConfig {
     bool allowDirect = false;          ///< Enable high-performance direct message access
     bool mirrorDirect = false;         ///< Enable direct access for mirror streams
     bool discardNewPerSubject = false; ///< Apply DiscardNew per subject rather than the whole stream
+    bool allowMsgTtl = false;          ///< Honour the Nats-TTL header on messages; once on, cannot be turned off
+    /// Lifetime of the marker left when a limit removes a subject's last message; nullopt = no marker
+    std::optional<NatsDuration> subjectDeleteMarkerTtl;
 
     std::optional<JsRePublish> rePublish;      ///< Republish matched messages to another subject
     JsSubjectTransformConfig subjectTransform; ///< Transform subject on ingress (NATS 2.10)
@@ -557,6 +560,9 @@ struct KvConfig {
     std::optional<int32_t> maxValueSize;         ///< Maximum size of a value in bytes (nullopt = unlimited)
     JsStorageType storage = JsStorageType::File; ///< Storage backend (file or memory)
     int replicas = 1;                            ///< Number of replicas in a clustered JetStream (1–5)
+    /// Lets purge() expire its marker and sets how long the server keeps the marker it leaves when a limit removes
+    /// a key. nullopt = markers stay until the bucket is deleted. Needs nats-server 2.11.
+    std::optional<NatsDuration> markerTtl;
 };
 
 struct KvEntry {
@@ -946,8 +952,9 @@ public:
     /// Mark the key as deleted. Its history stays; get() reports it as absent until it is written again.
     void deleteKey(const QString& key) const;
 
-    /// Remove every revision of the key, leaving only a purge marker.
-    void purge(const QString& key) const;
+    /// Remove every revision of the key, leaving only a purge marker. With markerTtl the server drops the marker
+    /// after that long; the bucket must have been created with KvConfig::markerTtl.
+    void purge(const QString& key, std::optional<NatsDuration> markerTtl = std::nullopt) const;
 
     /// Every key whose latest entry is a value. Returns an empty list for an empty bucket.
     [[nodiscard]] QStringList keys() const;

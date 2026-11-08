@@ -306,6 +306,9 @@ JsStreamConfig fromC(const jsStreamConfig& cfg) {
     result.allowDirect = cfg.AllowDirect;
     result.mirrorDirect = cfg.MirrorDirect;
     result.discardNewPerSubject = cfg.DiscardNewPerSubject;
+    result.allowMsgTtl = cfg.AllowMsgTTL;
+    result.subjectDeleteMarkerTtl =
+        cfg.SubjectDeleteMarkerTTL <= 0 ? std::nullopt : std::optional(NatsDuration{cfg.SubjectDeleteMarkerTTL});
     result.rePublish = cfg.RePublish ? std::optional(fromC(*cfg.RePublish)) : std::nullopt;
     result.subjectTransform = fromC(cfg.SubjectTransform);
     result.consumerLimits = fromC(cfg.ConsumerLimits);

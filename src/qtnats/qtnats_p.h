@@ -661,6 +661,8 @@ auto convertAndHandle(const JsStreamConfig& cfg, F&& handler) -> std::invoke_res
     o.AllowDirect = cfg.allowDirect;
     o.MirrorDirect = cfg.mirrorDirect;
     o.DiscardNewPerSubject = cfg.discardNewPerSubject;
+    o.AllowMsgTTL = cfg.allowMsgTtl;
+    o.SubjectDeleteMarkerTTL = cfg.subjectDeleteMarkerTtl.has_value() ? cfg.subjectDeleteMarkerTtl->count() : 0;
     o.Compression = static_cast<jsStorageCompression>(cfg.compression);
     o.FirstSeq = cfg.firstSeq;
 
@@ -788,6 +790,8 @@ auto convertAndHandle(const KvConfig& cfg, F&& handler) -> std::invoke_result_t<
     o.MaxValueSize = cfg.maxValueSize.value_or(0);
     o.StorageType = static_cast<jsStorageType>(cfg.storage);
     o.Replicas = cfg.replicas;
+    // Nanoseconds; nats.c turns on per-message TTL for the stream and copies it into SubjectDeleteMarkerTTL.
+    o.LimitMarkerTTL = cfg.markerTtl.has_value() ? cfg.markerTtl->count() : 0;
     return handler(o);
 }
 
