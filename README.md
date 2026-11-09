@@ -39,6 +39,7 @@ using namespace QtNats;
 
 Client c;
 // most of cnats connection options are supported: user/password/token, connection name, configuration of PING/PONG and reconnecting behaviour
+// connectToServer blocks until connected; connectToServerAsync doesn't (see API.md)
 c.connectToServer(QUrl("nats://localhost:4222"));
 // to simplify memory management, the Client object is the subscription's parent
 // you can also use smart pointers

@@ -17,7 +17,10 @@ Inherits: `QObject`
 explicit Client(QObject* parent = nullptr);
 void connectToServer(const Options& opts);
 void connectToServer(const QUrl& address);
+void connectToServerAsync(const Options& opts);
+void connectToServerAsync(const QUrl& address);
 void close() noexcept;
+void closeAsync() noexcept;
 void publish(const Message& msg);
 Message request(const Message& msg, int64_t timeout = 2000);
 QFuture<Message> asyncRequest(const Message& msg, int64_t timeout = 2000);
@@ -37,6 +40,30 @@ natsConnection* getNatsConnection() const;
 void errorOccurred(natsStatus error, const QString& text);
 void statusChanged(ConnectionStatus status);
 ```
+
+### Connecting and closing
+Call a Client's functions from the thread it lives on.
+
+`connectToServer` blocks until connected. If it can't connect, it emits `errorOccurred` and `statusChanged(Closed)`,
+then throws. `close()` blocks until the connection has closed, then fails pending `asyncRequest` futures with
+`NATS_CONNECTION_CLOSED`. The destructor calls `close()`.
+
+To manage many Clients from one thread, such as a GUI thread, use the non-blocking versions:
+- `connectToServerAsync` emits `statusChanged(Connecting)` and returns. It connects on a qtnats thread, then emits
+  `statusChanged(Connected)`, or `errorOccurred` and `statusChanged(Closed)` if it fails. Invalid options still
+  throw at once. Until `Connected`, functions that need the connection, such as `publish`, `subscribe` and
+  `jetStream`, throw `NATS_NOT_YET_CONNECTED`, and `ping` returns false.
+- `closeAsync()` emits `statusChanged(Closed)` and returns; the connection closes on a qtnats thread, and pending
+  `asyncRequest` futures then fail. Call it before destroying a Client so the destructor doesn't block.
+
+Either connect closes any existing connection first. Signals for asynchronous events, such as disconnects, reconnects
+and `connectToServerAsync`'s result, are emitted on cnats or qtnats threads, so connect to them with the default
+(auto) connection type.
+
+`Options::sendAsap` sends each write at once instead of from a flusher thread, saving a thread per connection.
+`Options::writeDeadline` bounds blocking socket writes, and so how long closing a connection to an unresponsive
+server can take. At exit the process waits for background closes still in progress, so they finish cleanly; set
+`writeDeadline` to bound that wait.
 
 ## Subscription Class
 Represents a NATS subscription. Do not create the object yourself - use the factory functions `Client::subscribe`,

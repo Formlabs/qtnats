@@ -35,6 +35,7 @@ static void jsPubErrHandler(jsCtx*, jsPubAckErr* pae, void* closure) {
 }
 
 JetStream* Client::jetStream(const JsOptions& options) {
+    natsConnection* const conn = connection();
     // If something throws, it will be cleaned up by the unique_ptr's destructor instead of being leaked.
     // We can't use make_unique because we're relying on the friend declaration.
     auto js = std::unique_ptr<JetStream>(new JetStream(this));
@@ -42,7 +43,7 @@ JetStream* Client::jetStream(const JsOptions& options) {
     convertAndHandle(options, [&](jsOptions& jsOpts) {
         jsOpts.PublishAsync.ErrHandler = &jsPubErrHandler;
         jsOpts.PublishAsync.ErrHandlerClosure = js.get();
-        checkError(natsConnection_JetStream(&js->m_jsCtx, m_conn, &jsOpts));
+        checkError(natsConnection_JetStream(&js->m_jsCtx, conn, &jsOpts));
     });
     return js.release();
 }
@@ -418,7 +419,7 @@ Subscription* JetStream::subscribeAsync(
 
     // Start from the event loop, so slots connected right after this call receive every message.
     QMetaObject::invokeMethod(
-        this, [pool = m_client->m_subscribePool, job] { pool->start([job] { job->run(); }); }, Qt::QueuedConnection
+        this, [job] { subscribePool().start([job] { job->run(); }); }, Qt::QueuedConnection
     );
     return sub;
 }
