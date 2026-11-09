@@ -78,6 +78,8 @@ private Q_SLOTS:
     void connectFailureReportsClosedAndThrows();
     void connectingAgainReplacesTheConnection();
     void reconnectingSurvivesASlotDeletingTheClientOnClosed();
+    void blockingReconnectReturnsIfASlotDeletesTheClientOnClosed();
+    void droppedConnectsDoNotDelayLiveOnes();
 
     void asyncConnectReportsConnectingThenConnected();
     void notConnectedYetThrows();
@@ -293,8 +295,47 @@ void CoreTestCase::reconnectingSurvivesASlotDeletingTheClientOnClosed() {
 
     c->connectToServerAsync(localServer);
     QVERIFY(c == nullptr);
-    // Let the detached connect finish and close what it gets.
+    // Let the dropped connect run, if it does.
     QTest::qWait(500);
+}
+
+void CoreTestCase::blockingReconnectReturnsIfASlotDeletesTheClientOnClosed() {
+    auto* c = new Client();
+    c->connectToServer(localServer);
+    connect(c, &Client::statusChanged, this, [&c](ConnectionStatus status) {
+        if (status == ConnectionStatus::Closed) {
+            delete c;
+            c = nullptr;
+        }
+    });
+
+    QElapsedTimer elapsed;
+    elapsed.start();
+    c->connectToServer(optionsFor(unroutable));
+    QVERIFY(elapsed.elapsed() < nonBlockingMs);
+    QVERIFY(c == nullptr);
+}
+
+void CoreTestCase::droppedConnectsDoNotDelayLiveOnes() {
+    // Four times the connection pool's 64 threads, each stuck until its timeout if it runs. Dropped connects skip, so
+    // the live connect waits at most one timeout, for any that started first; running them all would take four.
+    Options unreachable = optionsFor(unroutable);
+    unreachable.timeout = NatsTimeout{3000};
+    std::vector<std::unique_ptr<Client>> dropped;
+    for (int i = 0; i < 256; i++) {
+        dropped.push_back(std::make_unique<Client>());
+        dropped.back()->connectToServerAsync(unreachable);
+    }
+    dropped.clear();
+
+    Client live;
+    QElapsedTimer elapsed;
+    elapsed.start();
+    live.connectToServerAsync(localServer);
+    QTRY_COMPARE_WITH_TIMEOUT(live.status(), ConnectionStatus::Connected, 5000);
+    cout << "Live connect after dropping 256: " << elapsed.elapsed() << " ms" << endl;
+    // Let any connect that had already started finish.
+    QTest::qWait(3500);
 }
 
 void CoreTestCase::connectingAgainReplacesTheConnection() {

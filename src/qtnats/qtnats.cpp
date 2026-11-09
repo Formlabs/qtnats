@@ -191,7 +191,16 @@ void reportFailedConnect(ConnectionCore& core, natsStatus s) {
     setStatus(core, ConnectionStatus::Closed);
 }
 
+// True once the Client has closed, reconnected or been destroyed, so connecting for it would be wasted.
+bool isDetached(ConnectionCore& core) {
+    const std::lock_guard lock(core.mutex);
+    return core.client == nullptr;
+}
+
 void connectInBackground(const std::shared_ptr<ConnectionCore>& core, natsOptions* options) {
+    // Otherwise queued connects for dropped Clients would hold up live ones, and the pool's wait at exit.
+    if (isDetached(*core))
+        return;
     natsConnection* conn = nullptr;
     const natsStatus s = natsConnection_Connect(&conn, options);
     if (s != NATS_OK) {
@@ -274,6 +283,9 @@ std::pair<std::shared_ptr<ConnectionCore>, std::shared_ptr<natsOptions>> Client:
 void Client::connectToServer(const Options& opts) {
     const auto started = startConnecting(opts);
     const std::shared_ptr<ConnectionCore>& core = started.first;
+    // A slot deleted this Client while it started connecting.
+    if (isDetached(*core))
+        return;
     natsConnection* conn = nullptr;
     const natsStatus s = natsConnection_Connect(&conn, started.second.get());
     if (s != NATS_OK) {
