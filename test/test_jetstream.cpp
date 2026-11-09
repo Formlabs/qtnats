@@ -17,9 +17,12 @@
 #include <qtnats/qtnats.h>
 
 #include <iostream>
+#include <memory>
+#include <vector>
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QMetaEnum>
 #include <QProcess>
 #include <QTimer>
@@ -61,6 +64,7 @@ private Q_SLOTS:
     void asyncSubscribeNoStream();
     void asyncSubscribeAfterClose();
     void asyncSubscribeDestroyedBeforeReady();
+    void asyncSubscribeNotDelayedByUnreachableConnects();
     void subscriptionStress();
     void readWriteObject();
 };
@@ -515,6 +519,30 @@ void JetStreamTestCase::asyncSubscribeDestroyedBeforeReady() {
     for (int i = 0; i < 20; i++)
         delete js->subscribeAsync("test.destroyed", orderedOptions(JsDeliverPolicy::Last));
     QTest::qWait(1000);
+}
+
+void JetStreamTestCase::asyncSubscribeNotDelayedByUnreachableConnects() {
+    // More connects than the connection pool has threads, each stuck until its timeout. TEST-NET-1 is never
+    // assigned; on networks that reject it at once, the connects just don't get in the way.
+    Options unreachable;
+    unreachable.servers = {QUrl("nats://192.0.2.1:4222")};
+    unreachable.timeout = NatsTimeout{3000};
+    std::vector<std::unique_ptr<Client>> stuck;
+    for (int i = 0; i < 100; i++) {
+        stuck.push_back(std::make_unique<Client>());
+        stuck.back()->connectToServerAsync(unreachable);
+    }
+
+    QElapsedTimer elapsed;
+    elapsed.start();
+    const std::unique_ptr<Subscription> sub(js->subscribeAsync("test.pools", orderedOptions(JsDeliverPolicy::Last)));
+    bool ready = false;
+    connect(sub.get(), &Subscription::ready, [&ready] { ready = true; });
+    QTRY_VERIFY_WITH_TIMEOUT(ready, 2000);
+    std::cout << "subscribeAsync ready after " << elapsed.elapsed() << " ms" << std::endl;
+
+    stuck.clear();
+    QTest::qWait(3500);
 }
 
 void JetStreamTestCase::subscriptionStress() {

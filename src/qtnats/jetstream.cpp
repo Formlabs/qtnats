@@ -419,7 +419,7 @@ Subscription* JetStream::subscribeAsync(
 
     // Start from the event loop, so slots connected right after this call receive every message.
     QMetaObject::invokeMethod(
-        this, [job] { threadPool().start([job] { job->run(); }); }, Qt::QueuedConnection
+        this, [job] { subscribePool().start([job] { job->run(); }); }, Qt::QueuedConnection
     );
     return sub;
 }

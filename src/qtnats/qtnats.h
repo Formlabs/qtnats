@@ -618,7 +618,8 @@ public:
 
     // General client manipulation functions.
 
-    // Blocks until connected, and throws if the connect fails. Closes any existing connection first.
+    // Blocks until connected. If the connect fails, emits errorOccurred and statusChanged(Closed), then throws.
+    // Closes any existing connection first.
     void connectToServer(const Options& opts);
 
     void connectToServer(const QUrl& address);
@@ -647,7 +648,8 @@ public:
 
     static QByteArray newInbox();
 
-    // Null unless Connected (or reconnecting).
+    // Null before connecting and after closing. After cnats gives up reconnecting, it's the closed connection until
+    // the next connect or close.
     natsConnection* getNatsConnection() const;
 
     // Functions for creating durable objects that are related to the client.

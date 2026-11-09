@@ -75,8 +75,9 @@ private Q_SLOTS:
     void request();
     void asyncRequest();
     void pendingRequestFailsOnClose();
-    void connectFailureThrows();
+    void connectFailureReportsClosedAndThrows();
     void connectingAgainReplacesTheConnection();
+    void reconnectingSurvivesASlotDeletingTheClientOnClosed();
 
     void asyncConnectReportsConnectingThenConnected();
     void notConnectedYetThrows();
@@ -263,8 +264,10 @@ void CoreTestCase::pendingRequestFailsOnClose() {
     }
 }
 
-void CoreTestCase::connectFailureThrows() {
+void CoreTestCase::connectFailureReportsClosedAndThrows() {
     Client c;
+    QSignalSpy statuses(&c, &Client::statusChanged);
+    QSignalSpy errors(&c, &Client::errorOccurred);
     try {
         c.connectToServer(optionsFor(closedPort));
         QFAIL("Connecting to a closed port succeeded");
@@ -272,6 +275,26 @@ void CoreTestCase::connectFailureThrows() {
     }
     QCOMPARE(c.status(), ConnectionStatus::Closed);
     QVERIFY(!c.errorString().isEmpty());
+    QCOMPARE(errors.count(), 1);
+    QCOMPARE(statuses.count(), 2);
+    QCOMPARE(statuses.at(0).at(0).value<ConnectionStatus>(), ConnectionStatus::Connecting);
+    QCOMPARE(statuses.at(1).at(0).value<ConnectionStatus>(), ConnectionStatus::Closed);
+}
+
+void CoreTestCase::reconnectingSurvivesASlotDeletingTheClientOnClosed() {
+    auto* c = new Client();
+    c->connectToServer(localServer);
+    connect(c, &Client::statusChanged, this, [&c](ConnectionStatus status) {
+        if (status == ConnectionStatus::Closed) {
+            delete c;
+            c = nullptr;
+        }
+    });
+
+    c->connectToServerAsync(localServer);
+    QVERIFY(c == nullptr);
+    // Let the detached connect finish and close what it gets.
+    QTest::qWait(500);
 }
 
 void CoreTestCase::connectingAgainReplacesTheConnection() {

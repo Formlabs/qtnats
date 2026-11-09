@@ -44,8 +44,9 @@ void statusChanged(ConnectionStatus status);
 ### Connecting and closing
 Call a Client's functions from the thread it lives on.
 
-`connectToServer` blocks until connected and throws if it can't connect. `close()` blocks until the connection has
-closed, then fails pending `asyncRequest` futures with `NATS_CONNECTION_CLOSED`. The destructor calls `close()`.
+`connectToServer` blocks until connected. If it can't connect, it emits `errorOccurred` and `statusChanged(Closed)`,
+then throws. `close()` blocks until the connection has closed, then fails pending `asyncRequest` futures with
+`NATS_CONNECTION_CLOSED`. The destructor calls `close()`.
 
 To manage many Clients from one thread, such as a GUI thread, use the non-blocking versions:
 - `connectToServerAsync` emits `statusChanged(Connecting)` and returns. It connects on a qtnats thread, then emits
@@ -61,7 +62,8 @@ and `connectToServerAsync`'s result, are emitted on cnats or qtnats threads, so 
 
 `Options::sendAsap` sends each write at once instead of from a flusher thread, saving a thread per connection.
 `Options::writeDeadline` bounds blocking socket writes, and so how long closing a connection to an unresponsive
-server can take.
+server can take. At exit the process waits for background closes still in progress, so they finish cleanly; set
+`writeDeadline` to bound that wait.
 
 ## Subscription Class
 Represents a NATS subscription. Do not create the object yourself - use the factory functions `Client::subscribe`,

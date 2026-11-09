@@ -91,8 +91,10 @@ struct ConnectionCore {
     std::shared_ptr<ConnectionCore> cnatsRef;
 };
 
-// Runs connects, teardowns and asynchronous subscribes for every Client, so none of them blocks its caller.
-QThreadPool& threadPool();
+// Run every Client's background connects and closes, and its asynchronous subscribes. They're separate so that
+// connects stuck on unreachable hosts can't delay subscribes.
+QThreadPool& connectionPool();
+QThreadPool& subscribePool();
 
 void checkError(natsStatus s);
 void subscriptionCallback(natsConnection* nc, natsSubscription* sub, natsMsg* msg, void* closure);

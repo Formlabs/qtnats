@@ -20,6 +20,7 @@
 
 #include <QFutureInterface>
 #include <QThread>
+#include <QPointer>
 #include <QThreadPool>
 
 #include "qtnats/qtnats.h"
@@ -64,11 +65,17 @@ Message::Message(natsMsg* msg)
 
 namespace {
 
-class GlobalThreadPool : public QThreadPool {
+// Their threads mostly wait on the network, so they can outnumber the cores.
+class ConnectionThreadPool : public QThreadPool {
 public:
-    GlobalThreadPool() { setMaxThreadCount(32); }
+    ConnectionThreadPool() { setMaxThreadCount(64); }
 };
-Q_GLOBAL_STATIC(GlobalThreadPool, globalThreadPool)
+class SubscribeThreadPool : public QThreadPool {
+public:
+    SubscribeThreadPool() { setMaxThreadCount(32); }
+};
+Q_GLOBAL_STATIC(ConnectionThreadPool, globalConnectionPool)
+Q_GLOBAL_STATIC(SubscribeThreadPool, globalSubscribePool)
 
 // Owns an asyncRequest's QFutureInterface for cnats. Freed in onComplete, after the subscription's last callback.
 using FutureHolder = std::shared_ptr<QFutureInterface<Message>>;
@@ -157,7 +164,7 @@ void closeNow(natsConnection* conn) {
 }
 
 void closeInBackground(natsConnection* conn) {
-    threadPool().start([conn] { closeNow(conn); });
+    connectionPool().start([conn] { closeNow(conn); });
 }
 
 // Stores a new connection in `core`. Returns false if its Client let go while it connected; the caller then
@@ -174,17 +181,21 @@ bool adopt(const std::shared_ptr<ConnectionCore>& core, natsConnection* conn) {
     return true;
 }
 
+// cnats makes no callbacks for a failed connect, so this reports it.
+void reportFailedConnect(ConnectionCore& core, natsStatus s) {
+    const QString text = lastErrorText(s);
+    const std::lock_guard lock(core.mutex);
+    core.lastError = text;
+    if (core.client)
+        Q_EMIT core.client->errorOccurred(s, text);
+    setStatus(core, ConnectionStatus::Closed);
+}
+
 void connectInBackground(const std::shared_ptr<ConnectionCore>& core, natsOptions* options) {
     natsConnection* conn = nullptr;
     const natsStatus s = natsConnection_Connect(&conn, options);
     if (s != NATS_OK) {
-        // A failed connect makes no callbacks.
-        const QString text = lastErrorText(s);
-        const std::lock_guard lock(core->mutex);
-        core->lastError = text;
-        if (core->client)
-            Q_EMIT core->client->errorOccurred(s, text);
-        setStatus(*core, ConnectionStatus::Closed);
+        reportFailedConnect(*core, s);
         return;
     }
     if (!adopt(core, conn))
@@ -207,7 +218,8 @@ std::pair<natsConnection*, ConnectionStatus> detach(std::shared_ptr<ConnectionCo
 
 } // namespace
 
-QThreadPool& QtNats::threadPool() { return *globalThreadPool(); }
+QThreadPool& QtNats::connectionPool() { return *globalConnectionPool(); }
+QThreadPool& QtNats::subscribePool() { return *globalSubscribePool(); }
 
 Client::Client(QObject* parent)
     : QObject(parent)
@@ -230,7 +242,6 @@ std::pair<std::shared_ptr<ConnectionCore>, std::shared_ptr<natsOptions>> Client:
     const Options& opts
 ) {
     auto core = std::make_shared<ConnectionCore>();
-    core->client = this;
     core->registry = m_registry;
     std::shared_ptr<natsOptions> natsOpts = convertAndHandle(opts, [&](NatsOptsPtr& c) {
         natsOptions* const nats_opts = c.get();
@@ -246,10 +257,17 @@ std::pair<std::shared_ptr<ConnectionCore>, std::shared_ptr<natsOptions>> Client:
         return std::shared_ptr<natsOptions>(c.release(), NatsOptsDeleter{});
     });
 
+    // Closing emits statusChanged(Closed), and a slot may destroy this Client. The core then stays detached, and the
+    // connect closes whatever it gets.
+    const QPointer<Client> self(this);
     closeAsync();
+    if (!self)
+        return {core, natsOpts};
+
+    core->client = this;
     m_core = core;
     Q_EMIT statusChanged(ConnectionStatus::Connecting);
-    // A slot may have destroyed this Client, so the callers use only what this returns.
+    // A slot may have destroyed this Client here too, so the callers use only what this returns.
     return {core, natsOpts};
 }
 
@@ -259,12 +277,7 @@ void Client::connectToServer(const Options& opts) {
     natsConnection* conn = nullptr;
     const natsStatus s = natsConnection_Connect(&conn, started.second.get());
     if (s != NATS_OK) {
-        const QString text = lastErrorText(s);
-        {
-            const std::lock_guard lock(core->mutex);
-            core->lastError = text;
-            core->status = ConnectionStatus::Closed;
-        }
+        reportFailedConnect(*core, s);
         throw Exception(s);
     }
     if (!adopt(core, conn))
@@ -279,7 +292,7 @@ void Client::connectToServer(const QUrl& address) {
 
 void Client::connectToServerAsync(const Options& opts) {
     auto started = startConnecting(opts);
-    threadPool().start([core = std::move(started.first), natsOpts = std::move(started.second)] {
+    connectionPool().start([core = std::move(started.first), natsOpts = std::move(started.second)] {
         connectInBackground(core, natsOpts.get());
     });
 }
