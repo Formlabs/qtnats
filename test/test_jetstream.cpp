@@ -67,6 +67,7 @@ private Q_SLOTS:
     void asyncSubscribeNotDelayedByUnreachableConnects();
     void subscriptionStress();
     void readWriteObject();
+    void keyValue();
 };
 
 void JetStreamTestCase::initTestCase() {
@@ -723,6 +724,110 @@ void JetStreamTestCase::readWriteObject() {
 
         // Cleanup
         js->deleteObjectStore(bucket);
+    } catch (const QException& e) {
+        QFAIL(e.what());
+    }
+}
+
+/// Verifies the key-value wrapper: bucket creation, update and binding, put/get/update, keys, delete and purge
+/// markers.
+void JetStreamTestCase::keyValue() {
+    try {
+        constexpr auto bucket = "test_kv";
+        constexpr auto description = "Test bucket for the key-value test";
+        const KeyValue* kv = js->createOrUpdateKeyValue({.bucket = bucket, .description = description});
+
+        // An empty bucket has no keys, and a missing key reads as absent.
+        QVERIFY(kv->keys().isEmpty());
+        QVERIFY(!kv->get("missing").has_value());
+
+        // put() returns the entry's revision; get() reads the entry back.
+        const auto first = kv->put("a", "1");
+        QVERIFY(first > 0);
+        const auto entry = kv->get("a");
+        QVERIFY(entry.has_value());
+        QCOMPARE(entry->bucket, QString{bucket});
+        QCOMPARE(entry->key, QString{"a"});
+        QCOMPARE(entry->value, QByteArray{"1"});
+        QCOMPARE(entry->revision, first);
+
+        // update() succeeds against the latest revision and throws against a stale one.
+        const auto second = kv->update("a", "2", first);
+        QVERIFY(second > first);
+        bool threw = false;
+        try {
+            kv->update("a", "3", first);
+        } catch (const QException&) {
+            threw = true;
+        }
+        QVERIFY2(threw, "update should throw for a stale revision");
+        QCOMPARE(kv->get("a")->value, QByteArray{"2"});
+
+        // keys() lists every live key.
+        kv->put("b", "x");
+        kv->put("c", "y");
+        auto keys = kv->keys();
+        keys.sort();
+        QCOMPARE(keys, (QStringList{"a", "b", "c"}));
+
+        // A deleted or purged key reads as absent and is no longer listed, until it is written again.
+        kv->deleteKey("b");
+        QVERIFY(!kv->get("b").has_value());
+        kv->purge("c");
+        QVERIFY(!kv->get("c").has_value());
+        QCOMPARE(kv->keys(), QStringList{"a"});
+        kv->put("b", "z");
+        QCOMPARE(kv->get("b")->value, QByteArray{"z"});
+
+        // Creating the bucket again with the same config, or binding to it, sees the same data.
+        const KeyValue* created = js->createOrUpdateKeyValue({.bucket = bucket, .description = description});
+        QCOMPARE(created->get("a")->value, QByteArray{"2"});
+        const KeyValue* bound = js->getKeyValue(bucket);
+        QCOMPARE(bound->get("a")->value, QByteArray{"2"});
+
+        // Creating it with a different config updates the backing stream and keeps the data.
+        const KeyValue* updated = js->createOrUpdateKeyValue({
+            .bucket = bucket,
+            .description = "Updated",
+            .history = 3,
+            .maxBytes = 1024 * 1024,
+        });
+        QCOMPARE(updated->get("a")->value, QByteArray{"2"});
+        const auto streamConfig = js->getStreamInfo(QString{"KV_"} + bucket).config;
+        QCOMPARE(streamConfig.description, std::optional<QString>{"Updated"});
+        QCOMPARE(streamConfig.maxMsgsPerSubject, std::optional<uint64_t>{3});
+        QCOMPARE(streamConfig.maxBytes, std::optional<uint64_t>{1024 * 1024});
+
+        // A marker TTL turns on per-message TTL for the stream and lets purge() leave a marker the server drops.
+        const KeyValue* expiring = js->createOrUpdateKeyValue({
+            .bucket = bucket,
+            .description = "Updated",
+            .markerTtl = std::chrono::seconds{1},
+        });
+        const auto withMarkerTtl = js->getStreamInfo(QString{"KV_"} + bucket).config;
+        QVERIFY(withMarkerTtl.allowMsgTtl);
+        QCOMPARE(withMarkerTtl.subjectDeleteMarkerTtl, std::optional<NatsDuration>{std::chrono::seconds{1}});
+        expiring->put("d", "soon gone");
+        expiring->purge("d", std::chrono::seconds{1});
+        QVERIFY(!expiring->get("d").has_value());
+        const auto withMarker = js->getStreamInfo(QString{"KV_"} + bucket).state.msgs;
+        QTRY_COMPARE_WITH_TIMEOUT(js->getStreamInfo(QString{"KV_"} + bucket).state.msgs, withMarker - 1, 5000);
+
+        // A TTL shorter than the stream's two-minute duplicates window is accepted; the server shrinks the window.
+        js->createOrUpdateKeyValue({.bucket = bucket, .description = "Updated", .ttl = std::chrono::seconds{30}});
+        const auto withTtl = js->getStreamInfo(QString{"KV_"} + bucket).config;
+        QCOMPARE(withTtl.maxAge, std::optional<NatsDuration>{std::chrono::seconds{30}});
+        QCOMPARE(withTtl.duplicates, NatsDuration{std::chrono::seconds{30}});
+
+        // Once the bucket is deleted, binding to it fails.
+        js->deleteKeyValue(bucket);
+        threw = false;
+        try {
+            js->getKeyValue(bucket);
+        } catch (const QException&) {
+            threw = true;
+        }
+        QVERIFY2(threw, "getKeyValue should throw for a deleted bucket");
     } catch (const QException& e) {
         QFAIL(e.what());
     }

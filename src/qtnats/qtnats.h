@@ -272,6 +272,9 @@ struct JsStreamConfig {
     bool allowDirect = false;          ///< Enable high-performance direct message access
     bool mirrorDirect = false;         ///< Enable direct access for mirror streams
     bool discardNewPerSubject = false; ///< Apply DiscardNew per subject rather than the whole stream
+    bool allowMsgTtl = false;          ///< Honour the Nats-TTL header on messages; once on, cannot be turned off
+    /// Lifetime of the marker left when a limit removes a subject's last message; nullopt = no marker
+    std::optional<NatsDuration> subjectDeleteMarkerTtl;
 
     std::optional<JsRePublish> rePublish;      ///< Republish matched messages to another subject
     JsSubjectTransformConfig subjectTransform; ///< Transform subject on ingress (NATS 2.10)
@@ -548,6 +551,28 @@ struct ObjStoreStatus {
     bool isCompressed;                    ///< True if the data is compressed on disk
 };
 
+struct KvConfig {
+    QString bucket;                              ///< Bucket name; must be unique, alphanumeric, dashes, underscores only
+    std::optional<QString> description;          ///< Optional human-readable description
+    uint8_t history = 1;                         ///< Revisions kept per key (1–64)
+    std::optional<NatsDuration> ttl;             ///< Maximum age of entries (nullopt = no expiry)
+    std::optional<uint64_t> maxBytes;            ///< Maximum size of the bucket in bytes (nullopt = unlimited)
+    std::optional<int32_t> maxValueSize;         ///< Maximum size of a value in bytes (nullopt = unlimited)
+    JsStorageType storage = JsStorageType::File; ///< Storage backend (file or memory)
+    int replicas = 1;                            ///< Number of replicas in a clustered JetStream (1–5)
+    /// Lets purge() expire its marker and sets how long the server keeps the marker it leaves when a limit removes
+    /// a key. nullopt = markers stay until the bucket is deleted. Needs nats-server 2.11.
+    std::optional<NatsDuration> markerTtl;
+};
+
+struct KvEntry {
+    QString bucket;        ///< Name of the bucket
+    QString key;           ///< Key of the entry
+    QByteArray value;      ///< Value of the entry
+    uint64_t revision;     ///< Revision of the entry; unique within the bucket and increasing
+    NatsTimePoint created; ///< When the entry was written
+};
+
 struct QTNATS_EXPORT Options {
     QList<QUrl> servers;
     QString user;
@@ -597,6 +622,7 @@ class Subscription;
 class PullSubscription;
 class JetStream;
 class ObjectStore;
+class KeyValue;
 struct SubscriptionRegistry;
 struct SubscriptionRelay;
 struct ConnectionCore;
@@ -862,6 +888,14 @@ public:
 
     void deleteObjectStore(const QString& bucket) const;
 
+    /// Create a key-value bucket, or bring an existing one to this config. Its entries are kept.
+    KeyValue* createOrUpdateKeyValue(const KvConfig& config);
+
+    /// Bind to an existing key-value bucket. Throws if there is none.
+    KeyValue* getKeyValue(const QString& bucket);
+
+    void deleteKeyValue(const QString& bucket) const;
+
 Q_SIGNALS:
     void errorOccurred(natsStatus error, jsErrCode jsErr, const QString& text, Message msg);
 
@@ -919,6 +953,44 @@ private:
     explicit ObjectStore(QObject* parent) : QObject(parent) {}
 
     objStore* m_objStore = nullptr;
+
+    friend class JetStream;
+};
+
+class QTNATS_EXPORT KeyValue : public QObject {
+    Q_OBJECT
+    Q_DISABLE_COPY(KeyValue)
+
+public:
+    ~KeyValue() noexcept override;
+
+    KeyValue(KeyValue&&) = delete;
+
+    KeyValue& operator=(KeyValue&&) = delete;
+
+    /// Write a value under the key, whether or not the key exists. Returns the new revision.
+    uint64_t put(const QString& key, const QByteArray& value) const;
+
+    /// Write a value only if the key's latest revision is lastRevision; throws otherwise. Returns the new revision.
+    uint64_t update(const QString& key, const QByteArray& value, uint64_t lastRevision) const;
+
+    /// The latest entry of the key, or nullopt if the key does not exist or was deleted or purged.
+    [[nodiscard]] std::optional<KvEntry> get(const QString& key) const;
+
+    /// Mark the key as deleted. Its history stays; get() reports it as absent until it is written again.
+    void deleteKey(const QString& key) const;
+
+    /// Remove every revision of the key, leaving only a purge marker. With markerTtl the server drops the marker
+    /// after that long; the bucket must have been created with KvConfig::markerTtl.
+    void purge(const QString& key, std::optional<NatsDuration> markerTtl = std::nullopt) const;
+
+    /// Every key whose latest entry is a value. Returns an empty list for an empty bucket.
+    [[nodiscard]] QStringList keys() const;
+
+private:
+    explicit KeyValue(QObject* parent) : QObject(parent) {}
+
+    kvStore* m_kv = nullptr;
 
     friend class JetStream;
 };

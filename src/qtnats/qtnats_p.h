@@ -227,6 +227,9 @@ struct ObjStoreStatusDeleter {
 struct ObjStoreWatcherDeleter {
     void operator()(objStoreWatcher* p) const { objStoreWatcher_Destroy(p); }
 };
+struct KvEntryDeleter {
+    void operator()(kvEntry* p) const { kvEntry_Destroy(p); }
+};
 using JsCtxPtr = std::unique_ptr<jsCtx, JsCtxDeleter>;
 using JsConsumerInfoPtr = std::unique_ptr<jsConsumerInfo, JsConsumerInfoDeleter>;
 using JsConsumerPauseResponsePtr = std::unique_ptr<jsConsumerPauseResponse, JsConsumerPauseResponseDeleter>;
@@ -241,6 +244,7 @@ using ObjStoreGetPtr = std::unique_ptr<objStoreGet, ObjStoreGetDeleter>;
 using ObjStoreInfoPtr = std::unique_ptr<objStoreInfo, ObjStoreInfoDeleter>;
 using ObjStoreStatusPtr = std::unique_ptr<objStoreStatus, ObjStoreStatusDeleter>;
 using ObjStoreWatcherPtr = std::unique_ptr<objStoreWatcher, ObjStoreWatcherDeleter>;
+using KvEntryPtr = std::unique_ptr<kvEntry, KvEntryDeleter>;
 
 JsClusterInfo fromC(const jsClusterInfo& cluster);
 JsConsumerConfig fromC(const jsConsumerConfig& cfg);
@@ -276,6 +280,8 @@ ObjStoreInfo fromC(const ObjStoreInfoPtr& info);
 ObjStoreMeta fromC(const objStoreMeta& meta);
 ObjStoreStatus fromC(const objStoreStatus& status);
 ObjStoreStatus fromC(const ObjStoreStatusPtr& status);
+KvEntry fromC(const kvEntry& entry);
+KvEntry fromC(const KvEntryPtr& entry);
 
 // Probe functor used by convertAndHandleAll to deduce CType without a runtime call.
 // A lambda would be simpler ([](auto& c) { return &c; }) but lambdas in unevaluated
@@ -676,6 +682,8 @@ auto convertAndHandle(const JsStreamConfig& cfg, F&& handler) -> std::invoke_res
     o.AllowDirect = cfg.allowDirect;
     o.MirrorDirect = cfg.mirrorDirect;
     o.DiscardNewPerSubject = cfg.discardNewPerSubject;
+    o.AllowMsgTTL = cfg.allowMsgTtl;
+    o.SubjectDeleteMarkerTTL = cfg.subjectDeleteMarkerTtl.has_value() ? cfg.subjectDeleteMarkerTtl->count() : 0;
     o.Compression = static_cast<jsStorageCompression>(cfg.compression);
     o.FirstSeq = cfg.firstSeq;
 
@@ -786,6 +794,25 @@ template <typename F>
 auto convertAndHandle(const ObjStoreOptions& opts, F&& handler) -> std::invoke_result_t<F, objStoreOptions&> {
     objStoreOptions o = {};
     o.ShowDeleted = opts.showDeleted;
+    return handler(o);
+}
+
+template <typename F>
+auto convertAndHandle(const KvConfig& cfg, F&& handler) -> std::invoke_result_t<F, kvConfig&> {
+    StringArena a;
+    kvConfig o = {};
+    o.Bucket = a.add(cfg.bucket);
+    o.Description = a.add(cfg.description);
+    o.History = cfg.history;
+    // Nanoseconds, unlike objStoreConfig.TTL: nats.c copies it straight into the stream's MaxAge.
+    o.TTL = cfg.ttl.has_value() ? cfg.ttl->count() : 0;
+    // nats.c treats 0 as unlimited for both.
+    o.MaxBytes = cfg.maxBytes.has_value() ? static_cast<int64_t>(*cfg.maxBytes) : 0;
+    o.MaxValueSize = cfg.maxValueSize.value_or(0);
+    o.StorageType = static_cast<jsStorageType>(cfg.storage);
+    o.Replicas = cfg.replicas;
+    // Nanoseconds; nats.c turns on per-message TTL for the stream and copies it into SubjectDeleteMarkerTTL.
+    o.LimitMarkerTTL = cfg.markerTtl.has_value() ? cfg.markerTtl->count() : 0;
     return handler(o);
 }
 
