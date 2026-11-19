@@ -134,4 +134,14 @@ if (BUILD_QT_NATS_INTEGRATION_TESTING)
     target_link_libraries(test_jetstream PRIVATE qtnats Qt::Test)
     # Designated initializers need C++20.
     set_target_properties(test_jetstream PROPERTIES CXX_STANDARD 20)
+
+    # Loads qtnats from a DLL, as a Python extension does, so test_core can check the process still exits.
+    if (WIN32)
+        add_library(qtnats_exit_dll SHARED test/dll_exit/probe_dll.cpp)
+        target_link_libraries(qtnats_exit_dll PRIVATE qtnats)
+        add_executable(qtnats_exit_probe test/dll_exit/probe_main.cpp)
+        target_link_libraries(qtnats_exit_probe PRIVATE qtnats_exit_dll)
+        add_dependencies(test_core qtnats_exit_probe)
+        target_compile_definitions(test_core PRIVATE QTNATS_EXIT_PROBE="$<TARGET_FILE:qtnats_exit_probe>")
+    endif ()
 endif ()

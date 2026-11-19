@@ -91,6 +91,7 @@ private Q_SLOTS:
     void pendingRequestFailsAfterCloseAsync();
     void manyClients();
     void sendAsapAndWriteDeadline();
+    void exitFromDllDoesNotHang();
     // Restarts the server, so it runs last.
     void reconnectsAfterServerRestart();
 };
@@ -501,6 +502,24 @@ void CoreTestCase::sendAsapAndWriteDeadline() {
     } catch (const QException& e) {
         QFAIL(e.what());
     }
+}
+
+void CoreTestCase::exitFromDllDoesNotHang() {
+#ifdef QTNATS_EXIT_PROBE
+    QProcess probe;
+    probe.setProcessChannelMode(QProcess::ForwardedChannels);
+    probe.start(QStringLiteral(QTNATS_EXIT_PROBE), {localServer.toString()});
+    QVERIFY(probe.waitForStarted());
+    if (!probe.waitForFinished(10000)) {
+        probe.kill();
+        probe.waitForFinished();
+        QFAIL("The process did not exit");
+    }
+    QCOMPARE(probe.exitStatus(), QProcess::NormalExit);
+    QCOMPARE(probe.exitCode(), 0);
+#else
+    QSKIP("Only Windows kills a DLL's threads before unloading it");
+#endif
 }
 
 void CoreTestCase::reconnectsAfterServerRestart() {
