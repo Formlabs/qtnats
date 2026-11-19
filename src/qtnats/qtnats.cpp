@@ -74,8 +74,6 @@ class SubscribeThreadPool : public QThreadPool {
 public:
     SubscribeThreadPool() { setMaxThreadCount(32); }
 };
-Q_GLOBAL_STATIC(ConnectionThreadPool, globalConnectionPool)
-Q_GLOBAL_STATIC(SubscribeThreadPool, globalSubscribePool)
 
 // Owns an asyncRequest's QFutureInterface for cnats. Freed in onComplete, after the subscription's last callback.
 using FutureHolder = std::shared_ptr<QFutureInterface<Message>>;
@@ -227,8 +225,16 @@ std::pair<natsConnection*, ConnectionStatus> detach(std::shared_ptr<ConnectionCo
 
 } // namespace
 
-QThreadPool& QtNats::connectionPool() { return *globalConnectionPool(); }
-QThreadPool& QtNats::subscribePool() { return *globalSubscribePool(); }
+// The pools are never destroyed: a DLL's static destructors run after Windows has ended the pools' threads, so
+// waiting for them would hang.
+QThreadPool& QtNats::connectionPool() {
+    static auto* const pool = new ConnectionThreadPool;
+    return *pool;
+}
+QThreadPool& QtNats::subscribePool() {
+    static auto* const pool = new SubscribeThreadPool;
+    return *pool;
+}
 
 Client::Client(QObject* parent)
     : QObject(parent)
